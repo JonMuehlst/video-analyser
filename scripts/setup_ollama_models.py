@@ -10,11 +10,8 @@ import dotenv
 from pathlib import Path
 from config import create_default_config
 
-# Get project root directory (one level up from scripts)
-PROJECT_ROOT = Path(__file__).parent.parent
-
 # Load environment variables from .env file
-dotenv.load_dotenv(PROJECT_ROOT / '.env')
+dotenv.load_dotenv(Path(__file__).parent / '.env')
 
 def run_command(command):
     """Run a shell command and print output"""
@@ -99,7 +96,7 @@ def main():
         run_command(f"ollama pull {small_models['tiny']}")
     
     print("\nSetup complete! You can now run SmolaVision with local models.")
-    print("Use: python scripts/run_local.py [video_path]")
+    print("Use: python run_local.py [video_path]")
 
 if __name__ == "__main__":
     main()

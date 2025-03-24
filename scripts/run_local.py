@@ -11,17 +11,14 @@ from pathlib import Path
 from video_analysis import run_smolavision
 from config import create_default_config
 
-# Get project root directory (one level up from scripts)
-PROJECT_ROOT = Path(__file__).parent.parent
-
 # Load environment variables from .env file
-dotenv.load_dotenv(PROJECT_ROOT / '.env')
+dotenv.load_dotenv(Path(__file__).parent / '.env')
 
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[logging.StreamHandler(), logging.FileHandler(PROJECT_ROOT / "smolavision_local.log")]
+    handlers=[logging.StreamHandler(), logging.FileHandler("smolavision_local.log")]
 )
 logger = logging.getLogger("SmolaVision")
 
