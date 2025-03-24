@@ -45,9 +45,9 @@ class ModelConfig:
 class VideoConfig:
     """Configuration for video processing"""
     language: str = "Hebrew"
-    frame_interval: int = 10
-    detect_scenes: bool = True
-    scene_threshold: float = 30.0
+    frame_interval: int = 5        # Reduced interval for more frames
+    detect_scenes: bool = True     # Enable scene detection by default
+    scene_threshold: float = 20.0  # Lower threshold for more sensitive detection
     enable_ocr: bool = True
     start_time: float = 0.0
     end_time: float = 0.0
@@ -56,6 +56,7 @@ class VideoConfig:
     max_batch_size_mb: float = 10.0
     max_images_per_batch: int = 15
     batch_overlap_frames: int = 2
+    min_scene_duration: float = 1.0  # Minimum duration between scenes in seconds
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary"""
@@ -83,9 +84,10 @@ def load_config_from_env() -> Dict[str, Any]:
     
     # Video configuration
     config["language"] = os.environ.get("DEFAULT_LANGUAGE", "Hebrew")
-    config["frame_interval"] = int(os.environ.get("FRAME_INTERVAL", "10"))
-    config["detect_scenes"] = os.environ.get("DETECT_SCENES", "").lower() == "true"
-    config["scene_threshold"] = float(os.environ.get("SCENE_THRESHOLD", "30.0"))
+    config["frame_interval"] = int(os.environ.get("FRAME_INTERVAL", "5"))
+    config["detect_scenes"] = os.environ.get("DETECT_SCENES", "true").lower() == "true"  # Default to true
+    config["scene_threshold"] = float(os.environ.get("SCENE_THRESHOLD", "20.0"))
+    config["min_scene_duration"] = float(os.environ.get("MIN_SCENE_DURATION", "1.0"))
     config["enable_ocr"] = os.environ.get("ENABLE_OCR", "").lower() == "true"
     config["start_time"] = float(os.environ.get("START_TIME", "0.0"))
     config["end_time"] = float(os.environ.get("END_TIME", "0.0"))
@@ -132,6 +134,8 @@ def create_default_config(api_key: Optional[str] = None) -> Dict[str, Any]:
         config["video"].detect_scenes = env_config.get("detect_scenes")
     if env_config.get("scene_threshold"):
         config["video"].scene_threshold = env_config.get("scene_threshold")
+    if env_config.get("min_scene_duration"):
+        config["video"].min_scene_duration = env_config.get("min_scene_duration")
     if "enable_ocr" in env_config:
         config["video"].enable_ocr = env_config.get("enable_ocr")
     if env_config.get("start_time") is not None:

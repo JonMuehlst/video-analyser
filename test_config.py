@@ -38,6 +38,7 @@ def main():
     logger.info(f"Frame interval: {config['video'].frame_interval}")
     logger.info(f"Detect scenes: {config['video'].detect_scenes}")
     logger.info(f"Scene threshold: {config['video'].scene_threshold}")
+    logger.info(f"Min scene duration: {config['video'].min_scene_duration}")
     logger.info(f"Enable OCR: {config['video'].enable_ocr}")
     logger.info(f"Start time: {config['video'].start_time}")
     logger.info(f"End time: {config['video'].end_time}")
