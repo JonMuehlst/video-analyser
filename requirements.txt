@@ -2,7 +2,8 @@
 opencv-python>=4.5.0,<5.0.0    # Computer vision library for video processing
 numpy>=1.20.0                  # Numerical operations, required by OpenCV
 Pillow>=9.0.0                  # Python Imaging Library for image processing
-smolagent>=0.1.0               # Agent architecture framework
+smolagents>=0.1.0               # Agent architecture framework
+litellm>=0.1.0
 pytesseract
 
 # API clients
@@ -10,22 +11,12 @@ anthropic>=0.5.0               # Anthropic API client for Claude models
 openai>=1.0.0                  # OpenAI API client for GPT models
 
 # Utilities
-python-dotenv>=0.19.0          # Environment variable management for API keys
 tqdm>=4.62.0                   # Progress bars for batch processing
 requests>=2.25.0               # HTTP requests
 asyncio>=3.4.3                 # Asynchronous I/O
 
 # Logging and error handling
 loguru>=0.6.0                  # Enhanced logging capabilities# Core dependencies
-smolagents>=0.1.0
-opencv-python>=4.5.0
-numpy>=1.20.0
-Pillow>=8.0.0
-pytesseract>=0.3.8
-anthropic>=0.5.0
-openai>=1.0.0
-litellm>=0.1.0
-requests>=2.25.0
 
 # Optional dependencies
 python-dotenv>=0.19.0  # For loading environment variables
