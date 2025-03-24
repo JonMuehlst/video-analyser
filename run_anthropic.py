@@ -16,7 +16,7 @@ logger = logging.getLogger("SmolaVision-Anthropic")
 
 def main():
     parser = argparse.ArgumentParser(description="Run SmolaVision with Anthropic models")
-    parser.add_argument("video_path", help="Path to the video file to analyze")
+    parser.add_argument("--video_path", help="Path to the video file to analyze")
     parser.add_argument("--api-key", help="Anthropic API key (will use env var ANTHROPIC_API_KEY if not provided)")
     parser.add_argument("--output-dir", help="Directory to save output files", default="./output")
     parser.add_argument("--language", help="Language for analysis and summary", default="Hebrew")
@@ -25,15 +25,15 @@ def main():
     parser.add_argument("--vision-model", help="Vision model to use", default="claude-3-opus-20240229")
     parser.add_argument("--summary-model", help="Summary model to use", default="claude-3-5-sonnet-20240620")
     parser.add_argument("--no-flowchart", action="store_true", help="Disable flowchart generation")
-    
+
     args = parser.parse_args()
-    
+
     # Get API key from args or environment
     api_key = args.api_key or os.environ.get("ANTHROPIC_API_KEY")
     if not api_key:
         logger.error("Anthropic API key not provided. Please set ANTHROPIC_API_KEY environment variable or use --api-key")
         sys.exit(1)
-    
+
     # Run SmolaVision with the specified parameters
     run_smolavision(
         video_path=args.video_path,
@@ -44,11 +44,10 @@ def main():
         scene_threshold=args.scene_threshold,
         vision_model=args.vision_model,
         summary_model=args.summary_model,
-        output_dir=args.output_dir,
         generate_flowchart=not args.no_flowchart,
         enable_ocr=True
     )
-    
+
     logger.info(f"Analysis complete. Results saved to {args.output_dir}")
 
 if __name__ == "__main__":
