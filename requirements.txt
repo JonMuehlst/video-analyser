@@ -1,22 +1,23 @@
 # Core dependencies
 opencv-python>=4.5.0,<5.0.0    # Computer vision library for video processing
-numpy>=1.20.0                  # Numerical operations, required by OpenCV
-Pillow>=9.0.0                  # Python Imaging Library for image processing
+numpy>=1.20.0,<2.0.0           # Numerical operations, required by OpenCV
+Pillow>=9.0.0,<12.0.0          # Python Imaging Library for image processing
+# Custom agent framework - install from local directory if needed
 # smolagents>=0.1.0            # Agent architecture framework (not available on PyPI)
-litellm>=0.1.0                 # LLM API abstraction layer
+litellm>=1.0.0                 # LLM API abstraction layer
 pytesseract>=0.3.8             # OCR engine wrapper
 
 # API clients
-anthropic>=0.5.0               # Anthropic API client for Claude models
-openai>=1.0.0                  # OpenAI API client for GPT models
+anthropic>=0.5.0,<1.0.0        # Anthropic API client for Claude models
+openai>=1.0.0,<2.0.0           # OpenAI API client for GPT models
 
 # Utilities
-tqdm>=4.62.0                   # Progress bars for batch processing
-requests>=2.25.0               # HTTP requests
+tqdm>=4.62.0,<5.0.0            # Progress bars for batch processing
+requests>=2.25.0,<3.0.0        # HTTP requests
 # asyncio is part of the Python standard library
 
 # Logging and error handling
-loguru>=0.6.0                  # Enhanced logging capabilities
+loguru>=0.6.0,<1.0.0           # Enhanced logging capabilities
 
 # Optional dependencies
-python-dotenv>=0.19.0          # For loading environment variables
+python-dotenv>=0.19.0,<1.0.0   # For loading environment variables
