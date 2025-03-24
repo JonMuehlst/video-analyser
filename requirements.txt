@@ -2,7 +2,7 @@
 opencv-python>=4.5.0,<5.0.0    # Computer vision library for video processing
 numpy>=1.20.0                  # Numerical operations, required by OpenCV
 Pillow>=9.0.0                  # Python Imaging Library for image processing
-smolagents>=0.1.0              # Agent architecture framework
+# smolagents>=0.1.0            # Agent architecture framework (not available on PyPI)
 litellm>=0.1.0                 # LLM API abstraction layer
 pytesseract>=0.3.8             # OCR engine wrapper
 
