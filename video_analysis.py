@@ -127,15 +127,24 @@ class FrameExtractionTool(Tool):
             if detect_scenes:
                 logger.info("Detecting scene changes...")
                 prev_frame = None
+                last_scene_change_time = -float('inf')  # Track the last scene change time
+                min_scene_duration = video_config.min_scene_duration if 'video_config' in locals() else 1.0
 
-                # Check twice per second for scene changes
-                scene_check_interval = max(1, int(fps / 2))
+                # Check more frequently for scene changes (4 times per second)
+                scene_check_interval = max(1, int(fps / 4))
 
                 for frame_idx in range(start_frame, end_frame, scene_check_interval):
                     video.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
                     success, frame = video.read()
 
                     if not success:
+                        continue
+
+                    current_time = frame_idx / fps
+                        
+                    # Skip if we're too close to the previous scene change
+                    if current_time - last_scene_change_time < min_scene_duration:
+                        prev_frame = frame.copy()  # Still update the previous frame
                         continue
 
                     if prev_frame is not None:
@@ -151,15 +160,24 @@ class FrameExtractionTool(Tool):
                         cv2.normalize(hist1, hist1, 0, 1, cv2.NORM_MINMAX)
                         cv2.normalize(hist2, hist2, 0, 1, cv2.NORM_MINMAX)
 
-                        # Calculate difference score
+                        # Calculate difference score using Bhattacharyya distance
                         diff = cv2.compareHist(hist1, hist2, cv2.HISTCMP_BHATTACHARYYA) * 100
-
+                            
+                        # Also calculate structural similarity for better detection
+                        try:
+                            from skimage.metrics import structural_similarity as ssim
+                            ssim_score = ssim(gray1, gray2) * 100
+                            combined_diff = (diff + (100 - ssim_score)) / 2  # Average both metrics
+                        except ImportError:
+                            combined_diff = diff  # Fall back to just histogram if skimage not available
+                                
                         # If difference exceeds threshold, mark as scene change
-                        if diff > scene_threshold:
+                        if combined_diff > scene_threshold:
                             scene_changes.append(frame_idx)
-                            logger.debug(f"Scene change detected at frame {frame_idx} (diff: {diff:.2f})")
+                            last_scene_change_time = current_time
+                            logger.debug(f"Scene change detected at frame {frame_idx} (time: {current_time:.2f}s, diff: {combined_diff:.2f})")
 
-                    prev_frame = frame
+                    prev_frame = frame.copy()  # Make a copy to avoid reference issues
 
                     # Free memory periodically
                     if frame_idx % 1000 == 0:
@@ -174,6 +192,74 @@ class FrameExtractionTool(Tool):
             # Combine with scene change frames (filtering to only those within our range)
             scene_changes = [f for f in scene_changes if start_frame <= f < end_frame]
             frames_to_extract = sorted(list(frames_to_extract.union(set(scene_changes))))
+            
+            # Deduplicate frames that are too similar (within regular intervals)
+            if detect_scenes and len(frames_to_extract) > 1:
+                logger.info("Removing duplicate frames...")
+                
+                # Use a lower threshold for duplicate detection than scene detection
+                duplicate_threshold = scene_threshold * 0.7
+                
+                # Keep track of frames to remove
+                frames_to_remove = set()
+                
+                # Compare each regular frame with nearby frames
+                regular_frames = sorted(list(range(start_frame, end_frame, frame_step)))
+                
+                for i, frame_idx in enumerate(regular_frames):
+                    # Skip if this frame is already marked for removal
+                    if frame_idx in frames_to_remove:
+                        continue
+                        
+                    # Find nearby frames (within 2 seconds)
+                    nearby_frames = [f for f in frames_to_extract 
+                                    if f != frame_idx and abs(f - frame_idx) < fps * 2]
+                    
+                    if not nearby_frames:
+                        continue
+                        
+                    # Load the current frame
+                    video.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
+                    success1, frame1 = video.read()
+                    
+                    if not success1:
+                        continue
+                        
+                    # Convert to grayscale
+                    gray1 = cv2.cvtColor(frame1, cv2.COLOR_BGR2GRAY)
+                    
+                    # Compare with nearby frames
+                    for nearby_idx in nearby_frames:
+                        video.set(cv2.CAP_PROP_POS_FRAMES, nearby_idx)
+                        success2, frame2 = video.read()
+                        
+                        if not success2:
+                            continue
+                            
+                        # Convert to grayscale
+                        gray2 = cv2.cvtColor(frame2, cv2.COLOR_BGR2GRAY)
+                        
+                        # Calculate similarity
+                        hist1 = cv2.calcHist([gray1], [0], None, [256], [0, 256])
+                        hist2 = cv2.calcHist([gray2], [0], None, [256], [0, 256])
+                        
+                        cv2.normalize(hist1, hist1, 0, 1, cv2.NORM_MINMAX)
+                        cv2.normalize(hist2, hist2, 0, 1, cv2.NORM_MINMAX)
+                        
+                        diff = cv2.compareHist(hist1, hist2, cv2.HISTCMP_BHATTACHARYYA) * 100
+                        
+                        # If frames are very similar, mark the regular frame for removal
+                        # but keep scene change frames
+                        if diff < duplicate_threshold and nearby_idx in scene_changes:
+                            frames_to_remove.add(frame_idx)
+                            logger.debug(f"Removing duplicate frame {frame_idx} (similar to scene change {nearby_idx})")
+                            break
+                
+                # Remove duplicates
+                if frames_to_remove:
+                    original_count = len(frames_to_extract)
+                    frames_to_extract = [f for f in frames_to_extract if f not in frames_to_remove]
+                    logger.info(f"Removed {original_count - len(frames_to_extract)} duplicate frames")
 
             # Extract frames in batches to save memory
             batch_size = 50  # Process in smaller batches
