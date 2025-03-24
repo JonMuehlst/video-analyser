@@ -126,8 +126,8 @@ def run_smolavision(
     now = datetime.now()
     formatted_time = now.strftime("%Y%m%d%H%M")
 
-    # Create output directory
-    output_dir = f"output{os.sep}{formatted_time}"
+    # Create output directory with datetime format
+    output_dir = os.path.join("output", formatted_time)
     os.makedirs(output_dir, exist_ok=True)
 
     # Create default configuration if none provided
