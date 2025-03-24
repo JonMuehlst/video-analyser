@@ -24,6 +24,11 @@ from io import BytesIO
 # Import smolagents
 from smolagents import CodeAgent, Tool, HfApiModel, LiteLLMModel
 
+# Import local modules
+from config import create_default_config, ModelConfig, VideoConfig
+from ollama_client import OllamaClient
+from utils import ensure_directory, format_time_seconds
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -470,7 +475,8 @@ class VisionAnalysisTool(Tool):
                 language: str = "Hebrew",
                 model_name: str = "claude",
                 api_key: str = "",
-                mission: str = "general") -> str:
+                mission: str = "general",
+                ollama_config: Optional[Dict] = None) -> str:
         """Analyze a batch of frames using a vision model"""
         if not batch or len(batch) == 0:
             return "Error: Empty batch received"
@@ -498,8 +504,33 @@ class VisionAnalysisTool(Tool):
             else:
                 prompt = self._create_general_prompt(batch, previous_context, language)
 
+            # Check if using Ollama
+            if model_name == "ollama" or (ollama_config and ollama_config.get("enabled")):
+                # Use Ollama for local inference
+                base_url = ollama_config.get("base_url", "http://localhost:11434")
+                vision_model = ollama_config.get("vision_model", "llava")
+                
+                # Create or reuse Ollama client
+                if not hasattr(self, '_ollama_client') or self._ollama_client is None:
+                    self._ollama_client = OllamaClient(base_url=base_url)
+                
+                # Extract base64 images for Ollama
+                images = []
+                for frame in batch:
+                    base64_image = frame.get('base64_image', '')
+                    if base64_image and isinstance(base64_image, str):
+                        images.append(base64_image)
+                
+                # Call Ollama vision model
+                analysis = self._ollama_client.generate_vision(
+                    model=vision_model,
+                    prompt=prompt,
+                    images=images,
+                    max_tokens=4096
+                )
+                
             # Prepare images based on the model
-            if model_name.startswith("claude"):
+            elif model_name.startswith("claude"):
                 # Anthropic Claude format
                 import anthropic
 
@@ -575,7 +606,7 @@ class VisionAnalysisTool(Tool):
                 analysis = response.choices[0].message.content
 
             else:
-                return f"Error: Unsupported model name: {model_name}. Use 'claude' or 'gpt4o'."
+                return f"Error: Unsupported model name: {model_name}. Use 'claude', 'gpt4o', or 'ollama'."
 
             logger.info(f"Successfully analyzed batch from {start_time} to {end_time}")
 
@@ -766,7 +797,8 @@ class SummarizationTool(Tool):
                 model_name: str = "claude-3-5-sonnet-20240620",
                 api_key: str = "",
                 mission: str = "general",
-                generate_flowchart: bool = False) -> Dict:
+                generate_flowchart: bool = False,
+                ollama_config: Optional[Dict] = None) -> Dict:
         """Generate a coherent summary from all batch analyses"""
         logger.info("Generating final summary from all analyses")
 
@@ -898,8 +930,25 @@ VIDEO ANALYSIS (MIDDLE PART):
 {chunk}
 """
 
+                # Check if using Ollama
+                if model_name == "ollama" or (ollama_config and ollama_config.get("enabled")):
+                    # Use Ollama for local inference
+                    base_url = ollama_config.get("base_url", "http://localhost:11434")
+                    model = ollama_config.get("model_name", "llama3")
+                    
+                    # Create or reuse Ollama client
+                    if not hasattr(self, '_ollama_client') or self._ollama_client is None:
+                        self._ollama_client = OllamaClient(base_url=base_url)
+                    
+                    # Call Ollama model
+                    chunk_summary = self._ollama_client.generate(
+                        model=model,
+                        prompt=prompt,
+                        max_tokens=4096
+                    )
+                
                 # Call the LLM API based on model name
-                if model_name.startswith("claude"):
+                elif model_name.startswith("claude"):
                     import anthropic
 
                     # Create or reuse client
@@ -1085,8 +1134,13 @@ VIDEO ANALYSIS:
 
 
 # Main SmolaVision Agent
-def create_smolavision_agent(api_key: str, model_type: str = "anthropic"):
+def create_smolavision_agent(config: Dict[str, Any]):
     """Create the SmolaVision agent with all tools"""
+
+    # Extract configuration
+    model_config = config.get("model", {})
+    api_key = model_config.get("api_key", "")
+    model_type = model_config.get("model_type", "anthropic")
 
     # Create the tools
     frame_extraction_tool = FrameExtractionTool()
@@ -1101,7 +1155,12 @@ def create_smolavision_agent(api_key: str, model_type: str = "anthropic"):
         logger.warning("model_type was None, defaulting to 'anthropic'")
 
     # Choose the appropriate model interface based on model_type
-    if model_type == "anthropic":
+    if model_type == "ollama":
+        # For Ollama, we'll use a local model through the API
+        # The actual Ollama calls are handled in the tools
+        model = LiteLLMModel(model_id="anthropic/claude-3-opus-20240229", api_key=api_key)
+        logger.info("Using Ollama for local model inference (agent will use a placeholder model)")
+    elif model_type == "anthropic":
         model = LiteLLMModel(model_id="anthropic/claude-3-opus-20240229", api_key=api_key)
     elif model_type == "openai":
         model = LiteLLMModel(model_id="gpt-4o", api_key=api_key)
@@ -1120,7 +1179,7 @@ def create_smolavision_agent(api_key: str, model_type: str = "anthropic"):
         model=model,
         additional_authorized_imports=[
             "os", "json", "base64", "gc", "time", "anthropic", "openai",
-            "re", "pytesseract", "PIL"
+            "re", "pytesseract", "PIL", "requests"
         ],
         max_steps=50,  # Allow many steps for long videos
         verbosity_level=2  # Show detailed logs
@@ -1132,19 +1191,24 @@ def create_smolavision_agent(api_key: str, model_type: str = "anthropic"):
 # Main function to run the entire workflow
 def run_smolavision(
         video_path: str,
-        api_key: str,
-        language: str = "Hebrew",
-        frame_interval: int = 10,
-        detect_scenes: bool = True,
-        scene_threshold: float = 30.0,
-        vision_model: str = "claude",
-        summary_model: str = "claude-3-5-sonnet-20240620",
-        model_type: str = "anthropic",
-        enable_ocr: bool = True,
-        start_time: float = 0.0,
-        end_time: float = 0.0,
-        mission: str = "general",
-        generate_flowchart: bool = False
+        config: Optional[Dict[str, Any]] = None,
+        api_key: Optional[str] = None,
+        language: Optional[str] = None,
+        frame_interval: Optional[int] = None,
+        detect_scenes: Optional[bool] = None,
+        scene_threshold: Optional[float] = None,
+        vision_model: Optional[str] = None,
+        summary_model: Optional[str] = None,
+        model_type: Optional[str] = None,
+        enable_ocr: Optional[bool] = None,
+        start_time: Optional[float] = None,
+        end_time: Optional[float] = None,
+        mission: Optional[str] = None,
+        generate_flowchart: Optional[bool] = None,
+        ollama_enabled: Optional[bool] = None,
+        ollama_base_url: Optional[str] = None,
+        ollama_model: Optional[str] = None,
+        ollama_vision_model: Optional[str] = None
 ):
     """Run the complete SmolaVision workflow"""
 
@@ -1152,8 +1216,94 @@ def run_smolavision(
     output_dir = "output"
     os.makedirs(output_dir, exist_ok=True)
 
+    # Create default configuration if none provided
+    if config is None:
+        config = create_default_config(api_key)
+    
+    # Override config with any explicitly provided parameters
+    model_config = config.get("model", {})
+    video_config = config.get("video", {})
+    
+    # Update model configuration
+    if api_key is not None:
+        model_config["api_key"] = api_key
+    if model_type is not None:
+        model_config["model_type"] = model_type
+    if vision_model is not None:
+        model_config["vision_model"] = vision_model
+    if summary_model is not None:
+        model_config["summary_model"] = summary_model
+    
+    # Update Ollama configuration
+    ollama_config = model_config.get("ollama", {})
+    if ollama_enabled is not None:
+        ollama_config["enabled"] = ollama_enabled
+    if ollama_base_url is not None:
+        ollama_config["base_url"] = ollama_base_url
+    if ollama_model is not None:
+        ollama_config["model_name"] = ollama_model
+    if ollama_vision_model is not None:
+        ollama_config["vision_model"] = ollama_vision_model
+    model_config["ollama"] = ollama_config
+    
+    # Update video configuration
+    if language is not None:
+        video_config["language"] = language
+    if frame_interval is not None:
+        video_config["frame_interval"] = frame_interval
+    if detect_scenes is not None:
+        video_config["detect_scenes"] = detect_scenes
+    if scene_threshold is not None:
+        video_config["scene_threshold"] = scene_threshold
+    if enable_ocr is not None:
+        video_config["enable_ocr"] = enable_ocr
+    if start_time is not None:
+        video_config["start_time"] = start_time
+    if end_time is not None:
+        video_config["end_time"] = end_time
+    if mission is not None:
+        video_config["mission"] = mission
+    if generate_flowchart is not None:
+        video_config["generate_flowchart"] = generate_flowchart
+    
+    # Update the config with modified sections
+    config["model"] = model_config
+    config["video"] = video_config
+    
+    # Extract configuration values for use in the task
+    api_key = model_config.get("api_key", "")
+    model_type = model_config.get("model_type", "anthropic")
+    vision_model = model_config.get("vision_model", "claude")
+    summary_model = model_config.get("summary_model", "claude-3-5-sonnet-20240620")
+    ollama_config = model_config.get("ollama", {})
+    
+    language = video_config.get("language", "Hebrew")
+    frame_interval = video_config.get("frame_interval", 10)
+    detect_scenes = video_config.get("detect_scenes", True)
+    scene_threshold = video_config.get("scene_threshold", 30.0)
+    enable_ocr = video_config.get("enable_ocr", True)
+    start_time = video_config.get("start_time", 0.0)
+    end_time = video_config.get("end_time", 0.0)
+    mission = video_config.get("mission", "general")
+    generate_flowchart = video_config.get("generate_flowchart", False)
+    max_batch_size_mb = video_config.get("max_batch_size_mb", 10.0)
+    max_images_per_batch = video_config.get("max_images_per_batch", 15)
+    batch_overlap_frames = video_config.get("batch_overlap_frames", 2)
+
     # Create the agent
-    agent = create_smolavision_agent(api_key, model_type)
+    agent = create_smolavision_agent(config)
+
+    # Determine which model to use for vision analysis
+    vision_model_name = vision_model
+    if ollama_config.get("enabled"):
+        vision_model_name = "ollama"
+        logger.info(f"Using Ollama for vision analysis with model: {ollama_config.get('vision_model')}")
+
+    # Determine which model to use for summarization
+    summary_model_name = summary_model
+    if ollama_config.get("enabled"):
+        summary_model_name = "ollama"
+        logger.info(f"Using Ollama for summarization with model: {ollama_config.get('model_name')}")
 
     # Run the agent to process the video
     task = f"""
@@ -1170,20 +1320,20 @@ Analyze the video at path "{video_path}" with the following steps:
    {'- Specify language as "' + language + '"' if enable_ocr else ''}
 
 3. Create batches of frames using create_batches tool
-   - Use maximum batch size of 10 MB
-   - Use maximum of 15 images per batch
-   - Use 2 frames of overlap between batches
+   - Use maximum batch size of {max_batch_size_mb} MB
+   - Use maximum of {max_images_per_batch} images per batch
+   - Use {batch_overlap_frames} frames of overlap between batches
 
 4. Analyze each batch using analyze_batch tool
    - Pass context from previous batch to maintain continuity
    - Specify language as "{language}"
-   - Use "{vision_model}" as the vision model
+   - Use "{vision_model_name}" as the vision model
    {'- Use mission type "' + mission + '"' if mission != "general" else ''}
    {'- Make use of OCR text in frames when available' if enable_ocr else ''}
 
 5. Generate a final coherent summary using generate_summary tool
    - Combine all the analyses
-   - Use "{summary_model}" as the summary model
+   - Use "{summary_model_name}" as the summary model
    {'- Use mission type "' + mission + '"' if mission != "general" else ''}
    {'- Generate a workflow flowchart' if generate_flowchart else ''}
 
@@ -1199,13 +1349,14 @@ text content (with translations), and {'workflow logic' if mission == 'workflow'
         result = agent.run(task, additional_args={
             "api_key": api_key,
             "language": language,
-            "vision_model": vision_model,
-            "summary_model": summary_model,
+            "vision_model": vision_model_name,
+            "summary_model": summary_model_name,
             "enable_ocr": enable_ocr,
             "start_time": start_time,
             "end_time": end_time,
             "mission": mission,
-            "generate_flowchart": generate_flowchart
+            "generate_flowchart": generate_flowchart,
+            "ollama_config": ollama_config if ollama_config.get("enabled") else None
         })
 
         # Log completion
@@ -1232,7 +1383,7 @@ def main():
     parser.add_argument("--scene-threshold", type=float, default=30.0, help="Threshold for scene detection")
     parser.add_argument("--vision-model", default="claude", choices=["claude", "gpt4o"], help="Vision model to use")
     parser.add_argument("--summary-model", default="claude-3-5-sonnet-20240620", help="LLM for final summarization")
-    parser.add_argument("--model-type", default="anthropic", choices=["anthropic", "openai", "huggingface"],
+    parser.add_argument("--model-type", default="anthropic", choices=["anthropic", "openai", "huggingface", "ollama"],
                         help="Type of model for the agent")
     parser.add_argument("--api-key", help="API key for the model")
     parser.add_argument("--enable-ocr", action="store_true", help="Enable OCR text extraction from frames")
@@ -1241,12 +1392,23 @@ def main():
     parser.add_argument("--mission", default="general", choices=["general", "workflow"],
                         help="Analysis mission type")
     parser.add_argument("--generate-flowchart", action="store_true", help="Generate a workflow flowchart")
+    
+    # Ollama specific arguments
+    parser.add_argument("--ollama-enabled", action="store_true", help="Use Ollama for local model inference")
+    parser.add_argument("--ollama-base-url", default="http://localhost:11434", help="Ollama API base URL")
+    parser.add_argument("--ollama-model", default="llama3", help="Ollama model for text generation")
+    parser.add_argument("--ollama-vision-model", default="llava", help="Ollama model for vision tasks")
+    
+    # Batch configuration
+    parser.add_argument("--max-batch-size-mb", type=float, default=10.0, help="Maximum batch size in MB")
+    parser.add_argument("--max-images-per-batch", type=int, default=15, help="Maximum images per batch")
+    parser.add_argument("--batch-overlap-frames", type=int, default=2, help="Number of frames to overlap between batches")
 
     args = parser.parse_args()
 
     # Check if API key is provided or in environment
     api_key = args.api_key
-    if not api_key:
+    if not api_key and args.model_type != "ollama":
         if args.model_type == "anthropic":
             api_key = os.environ.get("ANTHROPIC_API_KEY")
         elif args.model_type == "openai":
@@ -1254,7 +1416,7 @@ def main():
         else:
             api_key = os.environ.get("HF_TOKEN")
 
-    if not api_key:
+    if not api_key and args.model_type != "ollama":
         print(f"Error: No API key provided for {args.model_type} and none found in environment variables")
         return
 
@@ -1262,24 +1424,37 @@ def main():
     if not os.path.exists(args.video):
         print(f"Error: Video file not found: {args.video}")
         return
+    
+    # Create configuration
+    config = create_default_config(api_key)
+    
+    # Update model configuration
+    config["model"]["model_type"] = args.model_type
+    config["model"]["vision_model"] = args.vision_model
+    config["model"]["summary_model"] = args.summary_model
+    
+    # Update Ollama configuration
+    config["model"]["ollama"]["enabled"] = args.ollama_enabled or args.model_type == "ollama"
+    config["model"]["ollama"]["base_url"] = args.ollama_base_url
+    config["model"]["ollama"]["model_name"] = args.ollama_model
+    config["model"]["ollama"]["vision_model"] = args.ollama_vision_model
+    
+    # Update video configuration
+    config["video"]["language"] = args.language
+    config["video"]["frame_interval"] = args.frame_interval
+    config["video"]["detect_scenes"] = args.detect_scenes
+    config["video"]["scene_threshold"] = args.scene_threshold
+    config["video"]["enable_ocr"] = args.enable_ocr
+    config["video"]["start_time"] = args.start_time
+    config["video"]["end_time"] = args.end_time
+    config["video"]["mission"] = args.mission
+    config["video"]["generate_flowchart"] = args.generate_flowchart
+    config["video"]["max_batch_size_mb"] = args.max_batch_size_mb
+    config["video"]["max_images_per_batch"] = args.max_images_per_batch
+    config["video"]["batch_overlap_frames"] = args.batch_overlap_frames
 
     # Run SmolaVision
-    result = run_smolavision(
-        video_path=args.video,
-        api_key=api_key,
-        language=args.language,
-        frame_interval=args.frame_interval,
-        detect_scenes=args.detect_scenes,
-        scene_threshold=args.scene_threshold,
-        vision_model=args.vision_model,
-        summary_model=args.summary_model,
-        model_type=args.model_type,
-        enable_ocr=args.enable_ocr,
-        start_time=args.start_time,
-        end_time=args.end_time,
-        mission=args.mission,
-        generate_flowchart=args.generate_flowchart
-    )
+    result = run_smolavision(video_path=args.video, config=config)
 
     # Print result information
     if isinstance(result, dict):
