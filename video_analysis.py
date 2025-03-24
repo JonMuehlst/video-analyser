@@ -1251,25 +1251,16 @@ def create_smolavision_agent(config: Dict[str, Any]):
         # For Ollama, we'll use a local model through the API
         # The actual Ollama calls are handled in the tools
         # Create a minimal model implementation that doesn't require any API
-        try:
-            from smolagents.models.base import BaseModel
-            class FallbackModel(BaseModel):
-                def generate(self, prompt, **kwargs):
-                    return "This is a fallback model response. The actual processing is done by Ollama tools."
-            model = FallbackModel()
-            logger.info("Using fallback model for agent (actual processing is done by Ollama tools)")
-        except Exception as e:
-            logger.error(f"Error creating fallback model: {str(e)}")
-            # Create an even simpler fallback if the above fails
-            class SimpleModel:
-                def generate(self, prompt, **kwargs):
-                    return "Fallback response. Processing done by Ollama tools."
-                
-                def __call__(self, prompt, **kwargs):
-                    return self.generate(prompt, **kwargs)
-                
-            model = SimpleModel()
-            logger.info("Using simple fallback model for agent")
+        # Create a simple fallback model that doesn't require any imports
+        class SimpleModel:
+            def generate(self, prompt, **kwargs):
+                return "Fallback response. Processing done by Ollama tools."
+            
+            def __call__(self, prompt, **kwargs):
+                return self.generate(prompt, **kwargs)
+            
+        model = SimpleModel()
+        logger.info("Using simple fallback model for agent (actual processing is done by Ollama tools)")
     elif model_type == "anthropic":
         model = LiteLLMModel(model_id="anthropic/claude-3-opus-20240229", api_key=api_key)
     elif model_type == "openai":
