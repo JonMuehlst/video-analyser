@@ -5,29 +5,23 @@ Process a video by extracting frames, sending to vision AI models, and creating 
 """
 
 import os
-import cv2
-import base64
 import time
-import json
-import numpy as np
 import argparse
 import logging
-import asyncio
-import gc
-from datetime import timedelta
-from typing import List, Dict, Any, Optional, Union
-from pathlib import Path
-from collections import deque
-from PIL import Image
-from io import BytesIO
+from typing import List, Dict, Any, Optional
 
 # Import smolagents
-from smolagents import CodeAgent, Tool, HfApiModel, LiteLLMModel
+from smolagents import CodeAgent, LiteLLMModel, HfApiModel
 
 # Import local modules
-from config import create_default_config, ModelConfig, VideoConfig
-from ollama_client import OllamaClient
-from utils import ensure_directory, format_time_seconds
+from config import create_default_config
+from tools import (
+    FrameExtractionTool,
+    OCRExtractionTool,
+    BatchCreationTool,
+    VisionAnalysisTool,
+    SummarizationTool
+)
 
 # Configure logging
 logging.basicConfig(
@@ -36,12 +30,6 @@ logging.basicConfig(
     handlers=[logging.StreamHandler(), logging.FileHandler("smolavision.log")]
 )
 logger = logging.getLogger("SmolaVision")
-
-
-# ===== TOOL DEFINITIONS =====
-
-class FrameExtractionTool(Tool):
-    """Tool for extracting frames from a video file"""
     name = "extract_frames"
     description = "Extracts frames from a video at regular intervals and detects scene changes"
     inputs = {
@@ -327,952 +315,119 @@ class FrameExtractionTool(Tool):
             return [{"error": error_msg}]
 
 
-class OCRExtractionTool(Tool):
-    """Tool for extracting text from frames using OCR"""
-    name = "extract_text_ocr"
-    description = "Extracts text from frames using OCR with support for Hebrew"
-    inputs = {
-        "frames": {
-            "type": "array",
-            "description": "List of extracted frames to process with OCR"
-        },
-        "language": {
-            "type": "string",
-            "description": "Primary language to optimize OCR for (e.g., 'heb' for Hebrew)",
-            "nullable": True
-        }
-    }
-    output_type = "array"
+# Command-line interface
+def main():
+    """Command-line interface for SmolaVision"""
+    parser = argparse.ArgumentParser(description="SmolaVision: Analyze videos using AI")
 
-    def forward(self, frames: List[Dict], language: str = "heb") -> List[Dict]:
-        """Extract text from frames using Tesseract OCR"""
-        logger.info(f"Extracting text using OCR from {len(frames)} frames")
+    parser.add_argument("--video", required=True, help="Path to video file")
+    parser.add_argument("--language", default="Hebrew", help="Language of text in the video")
+    parser.add_argument("--frame-interval", type=int, default=10, help="Extract a frame every N seconds")
+    parser.add_argument("--detect-scenes", action="store_true", help="Detect scene changes")
+    parser.add_argument("--scene-threshold", type=float, default=30.0, help="Threshold for scene detection")
+    parser.add_argument("--vision-model", default="claude", choices=["claude", "gpt4o"], help="Vision model to use")
+    parser.add_argument("--summary-model", default="claude-3-5-sonnet-20240620", help="LLM for final summarization")
+    parser.add_argument("--model-type", default="anthropic", choices=["anthropic", "openai", "huggingface", "ollama"],
+                        help="Type of model for the agent")
+    parser.add_argument("--api-key", help="API key for the model")
+    parser.add_argument("--enable-ocr", action="store_true", help="Enable OCR text extraction from frames")
+    parser.add_argument("--start-time", type=float, default=0.0, help="Start time in seconds (default: 0 = beginning)")
+    parser.add_argument("--end-time", type=float, default=0.0, help="End time in seconds (default: 0 = entire video)")
+    parser.add_argument("--mission", default="general", choices=["general", "workflow"],
+                        help="Analysis mission type")
+    parser.add_argument("--generate-flowchart", action="store_true", help="Generate a workflow flowchart")
+    
+    # Ollama specific arguments
+    parser.add_argument("--ollama-enabled", action="store_true", help="Use Ollama for local model inference")
+    parser.add_argument("--ollama-base-url", default="http://localhost:11434", help="Ollama API base URL")
+    parser.add_argument("--ollama-model", default="llama3", help="Ollama model for text generation")
+    parser.add_argument("--ollama-vision-model", default="llava", help="Ollama model for vision tasks")
+    
+    # Batch configuration
+    parser.add_argument("--max-batch-size-mb", type=float, default=10.0, help="Maximum batch size in MB")
+    parser.add_argument("--max-images-per-batch", type=int, default=15, help="Maximum images per batch")
+    parser.add_argument("--batch-overlap-frames", type=int, default=2, help="Number of frames to overlap between batches")
 
-        try:
-            import pytesseract
-            from PIL import Image
-            import base64
-            from io import BytesIO
-            import re
+    args = parser.parse_args()
 
-            # Map common language names to Tesseract language codes
-            language_map = {
-                "Hebrew": "heb",
-                "English": "eng",
-                "Arabic": "ara",
-                "Russian": "rus",
-                # Add more mappings as needed
-            }
-
-            # Ensure language is not None before using it
-            if language is None:
-                language = "eng"
-                logger.warning("Language parameter was None, defaulting to English")
-
-            # Get the Tesseract language code
-            lang_code = language_map.get(language, language)
-
-            # Process each frame with OCR
-            for i, frame in enumerate(frames):
-                if "base64_image" not in frame:
-                    logger.warning(f"Frame {i} missing base64_image, skipping OCR")
-                    frame["ocr_text"] = ""
-                    frame["ocr_error"] = "Missing base64_image"
-                    continue
-
-                # Ensure the base64_image is a string before decoding
-                base64_image = frame.get("base64_image", "")
-                if not isinstance(base64_image, str) or not base64_image:
-                    logger.warning(f"Frame {i} has invalid base64_image data, skipping OCR")
-                    frame["ocr_text"] = ""
-                    frame["ocr_error"] = "Invalid base64 image data"
-                    continue
-
-                try:
-                    # Decode base64 image
-                    img_data = base64.b64decode(base64_image)
-                    img = Image.open(BytesIO(img_data))
-
-                    # Run OCR with specified language
-                    text = pytesseract.image_to_string(img, lang=lang_code)
-
-                    # Clean up text (remove excessive whitespace)
-                    text = re.sub(r'\s+', ' ', text).strip()
-
-                    # Add the extracted text to the frame data
-                    frame["ocr_text"] = text
-                    frame["ocr_language"] = lang_code
-
-                    # Log a preview of the text (first 50 chars)
-                    text_preview = text[:50] + "..." if len(text) > 50 else text
-                    logger.debug(f"Frame {i} OCR: {text_preview}")
-
-                except Exception as e:
-                    logger.error(f"OCR failed for frame {i}: {str(e)}")
-                    frame["ocr_text"] = ""
-                    frame["ocr_error"] = str(e)
-
-            logger.info(f"OCR extraction completed for {len(frames)} frames")
-            return frames
-
-        except ImportError:
-            logger.error("Required OCR libraries not installed. Install with: pip install pytesseract pillow")
-            for frame in frames:
-                frame["ocr_text"] = ""
-                frame["ocr_error"] = "OCR libraries not installed"
-            return frames
-        except Exception as e:
-            error_msg = f"Error during OCR processing: {str(e)}"
-            logger.error(error_msg)
-            for frame in frames:
-                frame["ocr_text"] = ""
-                frame["ocr_error"] = error_msg
-            return frames
-
-
-class BatchCreationTool(Tool):
-    """Tool for creating batches of frames for processing"""
-    name = "create_batches"
-    description = "Groups frames into batches based on size and count limits"
-    inputs = {
-        "frames": {
-            "type": "array",
-            "description": "List of extracted frames"
-        },
-        "max_batch_size_mb": {
-            "type": "number",
-            "description": "Maximum size of a batch in MB",
-            "nullable": True
-        },
-        "max_images_per_batch": {
-            "type": "number",
-            "description": "Maximum number of images in a batch",
-            "nullable": True
-        },
-        "overlap_frames": {
-            "type": "number",
-            "description": "Number of frames to overlap between batches",
-            "nullable": True
-        }
-    }
-    output_type = "array"
-
-    def forward(self, frames: List[Dict],
-                max_batch_size_mb: float = 10.0,
-                max_images_per_batch: int = 15,
-                overlap_frames: int = 2) -> List[List[Dict]]:
-        """Group frames into batches based on size and count limits"""
-        logger.info("Creating batches from extracted frames")
-
-        try:
-            batches = []
-            current_batch = []
-            current_batch_size = 0
-
-            # Sort frames by timestamp to ensure chronological order
-            sorted_frames = sorted(frames, key=lambda x: x.get("timestamp_sec", 0))
-
-            for i, frame in enumerate(sorted_frames):
-                # Always start a new batch at scene changes if not the first frame
-                if frame.get("is_scene_change", False) and current_batch and i > 0:
-                    # If this frame would make the batch too large, finish the current batch first
-                    if (current_batch_size + frame.get("size_mb", 0) > max_batch_size_mb or
-                            len(current_batch) >= max_images_per_batch):
-                        batches.append(current_batch.copy())
-
-                        # Start new batch with overlap, including the scene change frame
-                        overlap_start = max(0, len(current_batch) - overlap_frames)
-                        current_batch = current_batch[overlap_start:]
-                        current_batch_size = sum(f.get("size_mb", 0) for f in current_batch)
-
-                # If adding this frame would exceed limits, finalize the current batch
-                if (current_batch_size + frame.get("size_mb", 0) > max_batch_size_mb or
-                    len(current_batch) >= max_images_per_batch) and current_batch:
-                    batches.append(current_batch.copy())
-
-                    # Start new batch with overlap
-                    overlap_start = max(0, len(current_batch) - overlap_frames)
-                    current_batch = current_batch[overlap_start:]
-                    current_batch_size = sum(f.get("size_mb", 0) for f in current_batch)
-
-                # Add frame to current batch
-                current_batch.append(frame)
-                current_batch_size += frame.get("size_mb", 0)
-
-            # Add the last batch if it's not empty
-            if current_batch:
-                batches.append(current_batch)
-
-            logger.info(f"Created {len(batches)} batches from {len(frames)} frames")
-
-            # Log batch statistics
-            batch_sizes = [len(batch) for batch in batches]
-            if batch_sizes:
-                logger.info(f"Batch statistics: min={min(batch_sizes)}, max={max(batch_sizes)}, "
-                            f"avg={sum(batch_sizes) / len(batch_sizes):.1f} frames per batch")
-
-            return batches
-
-        except Exception as e:
-            error_msg = f"Error creating batches: {str(e)}"
-            logger.error(error_msg)
-            return [[{"error": error_msg}]]
-
-
-class VisionAnalysisTool(Tool):
-    """Tool for analyzing batches of frames using a vision model"""
-    name = "analyze_batch"
-    description = "Analyzes a batch of frames using a vision model"
-    inputs = {
-        "batch": {
-            "type": "array",
-            "description": "Batch of frames to analyze"
-        },
-        "previous_context": {
-            "type": "string",
-            "description": "Context from previous analysis for continuity",
-            "nullable": True
-        },
-        "language": {
-            "type": "string",
-            "description": "Language of text in the video",
-            "nullable": True
-        },
-        "model_name": {
-            "type": "string",
-            "description": "Name of the vision model to use (claude or gpt4o)",
-            "nullable": True
-        },
-        "api_key": {
-            "type": "string",
-            "description": "API key for the vision model",
-            "nullable": True
-        },
-        "mission": {
-            "type": "string",
-            "description": "Specific analysis mission (e.g., 'workflow', 'general')",
-            "nullable": True
-        },
-        "ollama_config": {
-            "type": "object",
-            "description": "Configuration for Ollama local models",
-            "nullable": True
-        }
-    }
-    output_type = "string"
-
-    def forward(self, batch: List[Dict],
-                previous_context: str = "",
-                language: str = "Hebrew",
-                model_name: str = "claude",
-                api_key: str = "",
-                mission: str = "general",
-                ollama_config: Optional[Dict] = None) -> str:
-        """Analyze a batch of frames using a vision model"""
-        if not batch or len(batch) == 0:
-            return "Error: Empty batch received"
-
-        # Ensure language is not None
-        if language is None:
-            language = "English"
-            logger.warning("Language parameter was None, defaulting to English")
-
-        # Ensure model_name is not None
-        if model_name is None:
-            model_name = "claude"
-            logger.warning("model_name was None, defaulting to 'claude'")
-
-        # Get first and last timestamp for logging
-        start_time = batch[0].get("timestamp", "unknown")
-        end_time = batch[-1].get("timestamp", "unknown")
-
-        logger.info(f"Analyzing batch from {start_time} to {end_time} ({len(batch)} frames)")
-
-        try:
-            # Create prompt based on mission type
-            if mission and mission.lower() == "workflow":
-                prompt = self._create_workflow_prompt(batch, previous_context, language)
-            else:
-                prompt = self._create_general_prompt(batch, previous_context, language)
-
-            # Check if using Ollama
-            if model_name == "ollama" or (ollama_config and ollama_config.get("enabled")):
-                # Use Ollama for local inference
-                base_url = ollama_config.get("base_url", "http://localhost:11434")
-                vision_model = ollama_config.get("vision_model", "llava")
-                
-                # Create or reuse Ollama client
-                if not hasattr(self, '_ollama_client') or self._ollama_client is None:
-                    self._ollama_client = OllamaClient(base_url=base_url)
-                
-                # For smaller GPUs, we need to be careful with batch size
-                # Process images in smaller sub-batches if needed
-                max_images_per_request = 3  # Limit for 12GB VRAM
-                
-                if len(batch) > max_images_per_request:
-                    logger.info(f"Batch size ({len(batch)}) exceeds max images per request ({max_images_per_request}). Processing in sub-batches.")
-                    
-                    # Process in sub-batches and combine results
-                    sub_batch_results = []
-                    for i in range(0, len(batch), max_images_per_request):
-                        sub_batch = batch[i:i + max_images_per_request]
-                        
-                        # Extract base64 images for this sub-batch
-                        images = []
-                        for frame in sub_batch:
-                            base64_image = frame.get('base64_image', '')
-                            if base64_image and isinstance(base64_image, str):
-                                images.append(base64_image)
-                        
-                        # Create a sub-prompt
-                        sub_prompt = f"Analyzing frames {i+1} to {i+len(sub_batch)} of {len(batch)}:\n{prompt}"
-                        
-                        # Call Ollama vision model for this sub-batch
-                        sub_result = self._ollama_client.generate_vision(
-                            model=vision_model,
-                            prompt=sub_prompt,
-                            images=images,
-                            max_tokens=2048  # Smaller token limit for sub-batches
-                        )
-                        
-                        sub_batch_results.append(sub_result)
-                    
-                    # Combine results
-                    analysis = "\n\n".join(sub_batch_results)
-                else:
-                    # Process the whole batch at once
-                    # Extract base64 images for Ollama
-                    images = []
-                    for frame in batch:
-                        base64_image = frame.get('base64_image', '')
-                        if base64_image and isinstance(base64_image, str):
-                            images.append(base64_image)
-                    
-                    # Call Ollama vision model
-                    analysis = self._ollama_client.generate_vision(
-                        model=vision_model,
-                        prompt=prompt,
-                        images=images,
-                        max_tokens=4096
-                    )
-                
-            # Prepare images based on the model
-            elif model_name.startswith("claude"):
-                # Anthropic Claude format
-                import anthropic
-
-                # Create client (or reuse cached one)
-                if not hasattr(self, '_anthropic_client') or self._anthropic_client is None:
-                    self._anthropic_client = anthropic.Anthropic(api_key=api_key)
-
-                # Format images for Claude
-                images = []
-                for frame in batch:
-                    base64_image = frame.get('base64_image', '')
-                    if base64_image and isinstance(base64_image, str):
-                        images.append({
-                            "type": "image",
-                            "source": {
-                                "type": "base64",
-                                "media_type": "image/jpeg",
-                                "data": base64_image
-                            }
-                        })
-
-                # Make API call
-                model_id = "claude-3-opus-20240229" if model_name == "claude" else model_name
-                response = self._anthropic_client.messages.create(
-                    model=model_id,
-                    max_tokens=4096,
-                    messages=[
-                        {
-                            "role": "user",
-                            "content": [
-                                {"type": "text", "text": prompt},
-                                *images
-                            ]
-                        }
-                    ]
-                )
-                analysis = response.content[0].text
-
-            elif model_name == "gpt4o" or model_name == "gpt-4o":
-                # OpenAI GPT-4 Vision format
-                import openai
-
-                # Create client (or reuse cached one)
-                if not hasattr(self, '_openai_client') or self._openai_client is None:
-                    self._openai_client = openai.OpenAI(api_key=api_key)
-
-                # Format images for OpenAI
-                images = []
-                for frame in batch:
-                    base64_image = frame.get('base64_image', '')
-                    if base64_image and isinstance(base64_image, str):
-                        images.append({
-                            "type": "image_url",
-                            "image_url": {
-                                "url": f"data:image/jpeg;base64,{base64_image}"
-                            }
-                        })
-
-                # Make API call
-                response = self._openai_client.chat.completions.create(
-                    model="gpt-4o",
-                    max_tokens=4096,
-                    messages=[
-                        {
-                            "role": "user",
-                            "content": [
-                                {"type": "text", "text": prompt},
-                                *images
-                            ]
-                        }
-                    ]
-                )
-                analysis = response.choices[0].message.content
-
-            else:
-                return f"Error: Unsupported model name: {model_name}. Use 'claude', 'gpt4o', or 'ollama'."
-
-            logger.info(f"Successfully analyzed batch from {start_time} to {end_time}")
-
-            # Save analysis to a file
-            output_dir = os.path.join("output", "batch_analyses")
-            os.makedirs(output_dir, exist_ok=True)
-
-            safe_start = batch[0].get("safe_timestamp", "unknown")
-            safe_end = batch[-1].get("safe_timestamp", "unknown")
-
-            analysis_file = os.path.join(output_dir, f"batch_{safe_start}_to_{safe_end}.txt")
-            with open(analysis_file, "w", encoding="utf-8") as f:
-                # Add batch metadata as a header
-                f.write(f"# Batch Analysis: {start_time} to {end_time}\n")
-                f.write(f"# Frames: {len(batch)}\n")
-                f.write(f"# Mission: {mission}\n")
-                f.write(
-                    f"# Scene changes: {len([frame for frame in batch if frame.get('is_scene_change', False)])}\n\n")
-                f.write(analysis)
-
-            return analysis
-
-        except Exception as e:
-            error_msg = f"Error analyzing batch from {start_time} to {end_time}: {str(e)}"
-            logger.error(error_msg)
-            return error_msg
-
-    def _create_general_prompt(self, batch, previous_context, language):
-        """Create the standard general analysis prompt"""
-        # Ensure language is not None
-        if language is None:
-            language = "English"
-            logger.warning("Language parameter was None, defaulting to English")
-
-        # Prepare timestamps, noting scene changes
-        timestamp_info = []
-        for frame in batch:
-            if frame.get("is_scene_change", False):
-                timestamp_info.append(f"[{frame.get('timestamp', 'unknown')}*]")  # Mark scene changes with asterisk
-            else:
-                timestamp_info.append(f"[{frame.get('timestamp', 'unknown')}]")
-
-        timestamps_str = ", ".join(timestamp_info)
-
-        # Add indicator for scene changes if any exist in this batch
-        scene_changes = [frame for frame in batch if frame.get("is_scene_change", False)]
-        scene_change_note = ""
-        if scene_changes:
-            scene_change_timestamps = [f"[{frame.get('timestamp', 'unknown')}]" for frame in scene_changes]
-            scene_change_note = (f"\nNOTE: Frames marked with * represent detected scene changes at "
-                                 f"{', '.join(scene_change_timestamps)}. Pay special attention to changes "
-                                 f"in content, setting, or context at these points.")
-
-        # Include OCR text if available
-        ocr_texts = []
-        for frame in batch:
-            if frame.get("ocr_text"):
-                ocr_texts.append(f"[{frame.get('timestamp', 'unknown')}]: {frame.get('ocr_text')}")
-
-        ocr_section = ""
-        if ocr_texts:
-            ocr_section = "\n\nExtracted text from OCR:\n" + "\n".join(ocr_texts)
-
-        # Prepare context
-        if previous_context:
-            context_intro = f"\n\nContext from previous video segments:\n{previous_context}\n\n"
+    # Check if API key is provided or in environment
+    api_key = args.api_key
+    if not api_key and args.model_type != "ollama":
+        if args.model_type == "anthropic":
+            api_key = os.environ.get("ANTHROPIC_API_KEY")
+        elif args.model_type == "openai":
+            api_key = os.environ.get("OPENAI_API_KEY")
         else:
-            context_intro = ""
+            api_key = os.environ.get("HF_TOKEN")
 
-        # Create prompt
-        prompt = f"""
-{context_intro}
-Analyze the following video frames captured at timestamps {timestamps_str}. The video is in {language} language.{scene_change_note}{ocr_section}
+    if not api_key and args.model_type != "ollama":
+        print(f"Error: No API key provided for {args.model_type} and none found in environment variables")
+        return
 
-Key instructions:
-1. Describe all visual elements, text, people, actions, and settings
-2. Transcribe and translate any {language} text visible in the frames
-3. Note any transitions or changes across frames, especially at scene change points
-4. Maintain continuity with the previous context provided (if any)
-5. If text appears to continue from previous frames or context, attempt to complete the meaning
+    # Verify video file exists
+    try:
+        if not os.path.exists(args.video):
+            print(f"Error: Video file not found: {args.video}")
+            return
+    except Exception as e:
+        print(f"Error checking video file: {str(e)}")
+        print("Please ensure the video path is valid and contains only supported characters.")
+        return
+    
+    # Create configuration
+    config = create_default_config(api_key)
+    
+    # Update model configuration
+    model_config = config["model"]
+    model_config.model_type = args.model_type
+    model_config.vision_model = args.vision_model
+    model_config.summary_model = args.summary_model
+    
+    # Update Ollama configuration
+    model_config.ollama.enabled = args.ollama_enabled or args.model_type == "ollama"
+    model_config.ollama.base_url = args.ollama_base_url
+    model_config.ollama.model_name = args.ollama_model
+    model_config.ollama.vision_model = args.ollama_vision_model
+    
+    # Update video configuration
+    video_config = config["video"]
+    video_config.language = args.language
+    video_config.frame_interval = args.frame_interval
+    video_config.detect_scenes = args.detect_scenes
+    video_config.scene_threshold = args.scene_threshold
+    video_config.enable_ocr = args.enable_ocr
+    video_config.start_time = args.start_time
+    video_config.end_time = args.end_time
+    video_config.mission = args.mission
+    video_config.generate_flowchart = args.generate_flowchart
+    video_config.max_batch_size_mb = args.max_batch_size_mb
+    video_config.max_images_per_batch = args.max_images_per_batch
+    video_config.batch_overlap_frames = args.batch_overlap_frames
 
-Organize your analysis chronologically, noting timestamps where appropriate.
-Be detailed and comprehensive in your analysis.
-"""
-        return prompt
+    # Run SmolaVision
+    result = run_smolavision(video_path=args.video, config=config)
 
-    def _create_workflow_prompt(self, batch, previous_context, language):
-        """Create a specialized prompt for workflow analysis"""
-        # Ensure language is not None
-        if language is None:
-            language = "English"
-            logger.warning("Language parameter was None, defaulting to English")
-
-        # Prepare timestamps, noting scene changes
-        timestamp_info = []
-        for frame in batch:
-            if frame.get("is_scene_change", False):
-                timestamp_info.append(f"[{frame.get('timestamp', 'unknown')}*]")  # Mark scene changes with asterisk
-            else:
-                timestamp_info.append(f"[{frame.get('timestamp', 'unknown')}]")
-
-        timestamps_str = ", ".join(timestamp_info)
-
-        # Check for scene changes
-        scene_changes = [frame for frame in batch if frame.get("is_scene_change", False)]
-        scene_change_note = ""
-        if scene_changes:
-            scene_change_timestamps = [f"[{frame.get('timestamp', 'unknown')}]" for frame in scene_changes]
-            scene_change_note = (f"\nNOTE: Frames marked with * represent detected scene changes at "
-                                 f"{', '.join(scene_change_timestamps)}. Pay special attention to workflow transitions at these points.")
-
-        # Include OCR text if available
-        ocr_texts = []
-        for frame in batch:
-            if frame.get("ocr_text"):
-                ocr_texts.append(f"[{frame.get('timestamp', 'unknown')}]: {frame.get('ocr_text')}")
-
-        ocr_section = ""
-        if ocr_texts:
-            ocr_section = "\n\nExtracted text from OCR:\n" + "\n".join(ocr_texts)
-
-        # Prepare context
-        if previous_context:
-            context_intro = f"\n\nContext from previous video segments:\n{previous_context}\n\n"
+    # Print result information
+    if isinstance(result, dict):
+        if "error" in result:
+            print(f"Error: {result['error']}")
         else:
-            context_intro = ""
-
-        # Create workflow-specific prompt
-        prompt = f"""
-{context_intro}
-Analyze the following video frames captured at timestamps {timestamps_str}. These frames show interactions with an AI platform.{scene_change_note}{ocr_section}
-
-Key instructions for workflow analysis:
-1. Identify user roles and AI roles in the interaction (who is doing what)
-2. Analyze the prompting patterns and styles used with the AI
-3. Identify key steps in the workflow of interacting with the AI platform
-4. Note the sequence of actions, inputs, and outputs
-5. Identify any UI elements and their functions in the workflow
-6. Note any specific "prompt engineering" techniques visible
-7. Maintain continuity with the previous context provided (if any)
-8. If text appears to continue from previous frames or context, attempt to complete the meaning
-
-Organize your analysis chronologically, focusing on the workflow logic and interaction patterns.
-Your analysis will later be used to create a flow diagram of the entire process.
-"""
-        return prompt
-
-
-class SummarizationTool(Tool):
-    """Tool for generating a coherent summary from batch analyses"""
-    name = "generate_summary"
-    description = "Creates a coherent summary from all batch analyses"
-    inputs = {
-        "analyses": {
-            "type": "array",
-            "description": "List of all batch analyses"
-        },
-        "language": {
-            "type": "string",
-            "description": "Language of text in the video",
-            "nullable": True
-        },
-        "model_name": {
-            "type": "string",
-            "description": "Name of the LLM to use for summarization",
-            "nullable": True
-        },
-        "api_key": {
-            "type": "string",
-            "description": "API key for the LLM",
-            "nullable": True
-        },
-        "mission": {
-            "type": "string",
-            "description": "Specific analysis mission (e.g., 'workflow', 'general')",
-            "nullable": True
-        },
-        "generate_flowchart": {
-            "type": "boolean",
-            "description": "Whether to generate a flowchart diagram",
-            "nullable": True
-        },
-        "ollama_config": {
-            "type": "object",
-            "description": "Configuration for Ollama local models",
-            "nullable": True
-        }
-    }
-    output_type = "object"
-
-    def forward(self, analyses: List[str],
-                language: str = "Hebrew",
-                model_name: str = "claude-3-5-sonnet-20240620",
-                api_key: str = "",
-                mission: str = "general",
-                generate_flowchart: bool = False,
-                ollama_config: Optional[Dict] = None) -> Dict:
-        """Generate a coherent summary from all batch analyses"""
-        logger.info("Generating final summary from all analyses")
-
-        # Check for empty or None analyses
-        if not analyses:
-            return {"error": "No analyses provided"}
-
-        # Filter out None values
-        analyses = [analysis for analysis in analyses if analysis is not None]
-        if not analyses:
-            return {"error": "All analyses were None"}
-
-        try:
-            # Ensure language is not None
-            if language is None:
-                language = "English"
-                logger.warning("Language parameter was None, defaulting to English")
-
-            # Ensure model_name is not None
-            if model_name is None:
-                model_name = "claude-3-5-sonnet-20240620"
-                logger.warning("model_name was None, defaulting to default model")
-
-            # First, concatenate all analyses for the full detailed version
-            full_analysis = "\n\n---\n\n".join(analyses)
-
-            # Save the full analysis to a file
-            output_dir = "output"
-            os.makedirs(output_dir, exist_ok=True)
-
-            full_analysis_path = os.path.join(output_dir, "video_analysis_full.txt")
-            with open(full_analysis_path, "w", encoding="utf-8") as f:
-                f.write(full_analysis)
-
-            logger.info(f"Saved full analysis to {full_analysis_path}")
-
-            # Generate a coherent summary using the specified LLM
-            logger.info(f"Generating coherent narrative summary using {model_name}")
-
-            # Split the full analysis into manageable chunks for the LLM
-            max_chunk_size = 12000
-            chunks = self._chunk_text(full_analysis, max_chunk_size)
-            logger.info(f"Split analysis into {len(chunks)} chunks for summarization")
-
-            # Choose prompt template based on mission type and flowchart request
-            if mission and mission.lower() == "workflow" and generate_flowchart:
-                prompt_template = self._workflow_with_flowchart_prompt_template
-            elif mission and mission.lower() == "workflow":
-                prompt_template = self._workflow_prompt_template
-            else:
-                prompt_template = self._general_prompt_template
-
-            # Process each chunk to build a complete summary
-            complete_summary = ""
-
-            for i, chunk in enumerate(chunks):
-                is_first = (i == 0)
-                is_last = (i == len(chunks) - 1)
-
-                logger.info(f"Generating summary for chunk {i + 1}/{len(chunks)}")
-
-                # Create a prompt based on chunk position
-                if is_first and is_last:  # Only one chunk
-                    prompt = prompt_template.format(language=language, chunk=chunk)
-                elif is_first:  # First of multiple chunks
-                    prompt = f"""
-You are analyzing a video in {language}. Below is the first part of a detailed analysis of the video frames.
-
-Please begin creating a well-structured summary. This is part 1 of a multi-part summary process.
-Focus on:
-1. Describing the key visual elements, settings, people, and actions
-2. Including all important {language} text with translations
-3. Maintaining chronological flow
-4. Setting up context for later parts of the video
-
-The goal is to start a cohesive narrative that will be continued with additional content.
-
-VIDEO ANALYSIS (PART 1):
-{chunk}
-"""
-                elif is_last:  # Last of multiple chunks
-                    prompt = f"""
-You are continuing to analyze a video in {language}. Below is the final part of a detailed analysis of the video frames.
-
-This is the final part in a multi-part summary process. You've already summarized earlier parts as follows:
-
-PREVIOUS SUMMARY:
-{complete_summary}
-
-Please complete the summary by:
-1. Continuing the narrative from where the previous summary left off
-2. Integrating new information from this final section
-3. Ensuring all important {language} text is included with translations
-4. Creating proper closure and concluding the summary
-5. Maintaining consistency with the style and approach of the previous summary
-
-VIDEO ANALYSIS (FINAL PART):
-{chunk}
-"""
-                    # If this is workflow with flowchart and we're on the last chunk, add flowchart instructions
-                    if mission and mission.lower() == "workflow" and generate_flowchart:
-                        prompt += """
-After completing the narrative summary, please create a section titled "Workflow Diagram" containing a Mermaid flowchart that visualizes the workflow.
-Use this format for the Mermaid diagram:
-```mermaid
-flowchart TD
-    A[Start] --> B[Process]
-    B --> C[End]
-    %% Add all needed nodes and connections to represent the workflow
-```
-"""
-                else:  # Middle chunk
-                    prompt = f"""
-You are continuing to analyze a video in {language}. Below is a middle part of a detailed analysis of the video frames.
-
-This is a continuation of a multi-part summary process. You've already summarized earlier parts as follows:
-
-PREVIOUS SUMMARY:
-{complete_summary}
-
-Please continue the summary by:
-1. Picking up where the previous summary left off
-2. Integrating new information from this section
-3. Ensuring all important {language} text is included with translations
-4. Maintaining chronological flow and narrative coherence
-5. Setting up context for later parts of the video
-
-VIDEO ANALYSIS (MIDDLE PART):
-{chunk}
-"""
-
-                # Check if using Ollama
-                if model_name == "ollama" or (ollama_config and ollama_config.get("enabled")):
-                    # Use Ollama for local inference
-                    base_url = ollama_config.get("base_url", "http://localhost:11434")
-                    model = ollama_config.get("model_name", "llama3")
-                    
-                    # Create or reuse Ollama client
-                    if not hasattr(self, '_ollama_client') or self._ollama_client is None:
-                        self._ollama_client = OllamaClient(base_url=base_url)
-                    
-                    # For smaller models, we need to be more careful with context length
-                    # Determine if we should use a smaller model for better performance
-                    if len(prompt) > 8000 and "small_models" in ollama_config:
-                        # Use the smallest model for very large prompts
-                        logger.info(f"Using smaller model for large prompt ({len(prompt)} chars)")
-                        model = ollama_config.get("small_models", {}).get("fast", model)
-                    
-                    # Call Ollama model with appropriate token limit
-                    # Smaller models need smaller token limits
-                    max_tokens = 2048 if "phi" in model or "gemma:2b" in model or "tiny" in model else 4096
-                    
-                    chunk_summary = self._ollama_client.generate(
-                        model=model,
-                        prompt=prompt,
-                        max_tokens=max_tokens
-                    )
-                
-                # Call the LLM API based on model name
-                elif model_name.startswith("claude"):
-                    import anthropic
-
-                    # Create or reuse client
-                    if not hasattr(self, '_anthropic_client') or self._anthropic_client is None:
-                        self._anthropic_client = anthropic.Anthropic(api_key=api_key)
-
-                    response = self._anthropic_client.messages.create(
-                        model=model_name,
-                        max_tokens=4096,
-                        messages=[
-                            {
-                                "role": "user",
-                                "content": prompt
-                            }
-                        ]
-                    )
-                    chunk_summary = response.content[0].text
-
-                elif model_name.startswith("gpt"):
-                    import openai
-
-                    # Create or reuse client
-                    if not hasattr(self, '_openai_client') or self._openai_client is None:
-                        self._openai_client = openai.OpenAI(api_key=api_key)
-
-                    response = self._openai_client.chat.completions.create(
-                        model=model_name,
-                        max_tokens=4096,
-                        messages=[
-                            {
-                                "role": "user",
-                                "content": prompt
-                            }
-                        ]
-                    )
-                    chunk_summary = response.choices[0].message.content
-
-                else:
-                    return {"error": f"Unsupported model: {model_name}"}
-
-                # Update the complete summary
-                if is_first:
-                    complete_summary = chunk_summary
-                else:
-                    # For non-first chunks, append the new summary
-                    complete_summary += "\n\n" + chunk_summary
-
-            # If flowchart was requested and generated, save it
-            flowchart_path = None
-            if generate_flowchart and mission and mission.lower() == "workflow":
-                # Extract the flowchart Mermaid code
-                import re
-                flowchart_pattern = r"```mermaid\s*([\s\S]*?)\s*```"
-                flowchart_match = re.search(flowchart_pattern, complete_summary)
-
-                if flowchart_match:
-                    flowchart_code = flowchart_match.group(1).strip()
-                    flowchart_path = os.path.join(output_dir, "workflow_flowchart.mmd")
-
-                    with open(flowchart_path, "w", encoding="utf-8") as f:
-                        f.write(flowchart_code)
-
-                    logger.info(f"Saved workflow flowchart to {flowchart_path}")
-
-            # Save the coherent summary to a file
-            summary_path = os.path.join(output_dir, "video_summary.txt")
-            with open(summary_path, "w", encoding="utf-8") as f:
-                f.write(complete_summary)
-
-            logger.info(f"Saved coherent summary to {summary_path}")
-
-            # Return results including flowchart if generated
-            result = {
-                "full_analysis": full_analysis_path,
-                "coherent_summary": summary_path,
-                "summary_text": complete_summary
-            }
-
-            if flowchart_path:
-                result["flowchart"] = flowchart_path
-
-            return result
-
-        except Exception as e:
-            error_msg = f"Error generating summary: {str(e)}"
-            logger.error(error_msg)
-            return {"error": error_msg}
-
-    def _chunk_text(self, text: str, max_chunk_size: int = 12000) -> List[str]:
-        """Split text into chunks for processing by LLM"""
-        # Split by paragraphs first
-        paragraphs = text.split("\n\n")
-        chunks = []
-        current_chunk = ""
-
-        for paragraph in paragraphs:
-            # If adding this paragraph would exceed max size, start a new chunk
-            if len(current_chunk) + len(paragraph) > max_chunk_size and current_chunk:
-                chunks.append(current_chunk)
-                current_chunk = paragraph
-            else:
-                if current_chunk:
-                    current_chunk += "\n\n" + paragraph
-                else:
-                    current_chunk = paragraph
-
-        # Add the last chunk if not empty
-        if current_chunk:
-            chunks.append(current_chunk)
-
-        return chunks
-
-    # Templates for different types of summaries
-    _general_prompt_template = """
-You are analyzing a video in {language}. Below is a detailed analysis of the video frames.
-
-Please create a well-structured, comprehensive summary of the entire video. This summary should:
-1. Describe the key visual elements, settings, people, and actions
-2. Include all important {language} text with translations
-3. Maintain chronological flow and narrative coherence
-4. Highlight main topics or themes
-5. Be detailed while eliminating redundancy
-
-The goal is to create a cohesive narrative that someone could read to understand the full content of the video.
-
-VIDEO ANALYSIS:
-{chunk}
-"""
-
-    _workflow_prompt_template = """
-You are analyzing a video that demonstrates workflow interactions with an AI platform. Below is a detailed analysis of the video frames.
-
-Please create a well-structured, comprehensive summary of the AI interaction workflow shown in the video. This summary should:
-1. Identify distinct roles in the interaction (user types, AI roles)
-2. Describe the key steps in the workflow sequence
-3. Analyze prompting patterns and strategies used
-4. Describe UI elements and their functions in the workflow
-5. Maintain chronological flow and logical sequence
-6. Highlight important techniques or best practices demonstrated
-
-The goal is to create a clear description of the entire workflow that someone could follow to understand or replicate the process.
-
-VIDEO ANALYSIS:
-{chunk}
-"""
-
-    _workflow_with_flowchart_prompt_template = """
-You are analyzing a video that demonstrates workflow interactions with an AI platform. Below is a detailed analysis of the video frames.
-
-Please create:
-1. A well-structured, comprehensive summary of the AI interaction workflow shown in the video
-2. A Mermaid flowchart diagram that visually represents the workflow
-
-For the SUMMARY, include:
-- Identification of distinct roles in the interaction (user types, AI roles)
-- Description of the key steps in the workflow sequence
-- Analysis of prompting patterns and strategies used
-- Description of UI elements and their functions
-- Logical sequence and dependencies between steps
-- Important techniques or best practices demonstrated
-
-For the FLOWCHART:
-- Create a Mermaid flowchart diagram using the flowchart syntax
-- Use clear, concise node labels
-- Include all major steps in the process
-- Show the relationships and flow between steps
-- Include decision points where the workflow branches
-- Group related steps if appropriate
-- Keep the diagram clean and readable
-
-First provide the summary, then create a section titled "Workflow Diagram" containing only the Mermaid code block for the flowchart.
-Use this format for the Mermaid diagram:
-```mermaid
-flowchart TD
-    A[Start] --> B[Process]
-    B --> C[End]
-    %% Add all needed nodes and connections
-```
-
-VIDEO ANALYSIS:
-{chunk}
-"""
+            print("\nSummary of video:")
+            print("-" * 80)
+            print(
+                result["summary_text"][:1000] + "..." if len(result["summary_text"]) > 1000 else result["summary_text"])
+            print("-" * 80)
+            print(f"Full summary saved to: {result['coherent_summary']}")
+            print(f"Full analysis saved to: {result['full_analysis']}")
+
+            if "flowchart" in result:
+                print(f"Workflow flowchart saved to: {result['flowchart']}")
+    else:
+        print(result)
+
+
+if __name__ == "__main__":
+    main()
 
 
 # Main SmolaVision Agent
