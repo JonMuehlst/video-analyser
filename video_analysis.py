@@ -12,7 +12,7 @@ import gc
 import base64
 import dotenv
 from io import BytesIO
-from datetime import timedelta
+from datetime import timedelta, datetime
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 
@@ -123,8 +123,11 @@ def run_smolavision(
 ):
     """Run the complete SmolaVision workflow"""
 
+    now = datetime.now()
+    formatted_time = now.strftime("%Y%m%d%H%M")
+
     # Create output directory
-    output_dir = "output"
+    output_dir = f"output{os.sep}{formatted_time}"
     os.makedirs(output_dir, exist_ok=True)
 
     # Create default configuration if none provided
