@@ -1251,7 +1251,6 @@ def create_smolavision_agent(config: Dict[str, Any]):
         # For Ollama, we'll use a local model through the API
         # The actual Ollama calls are handled in the tools
         # Create a minimal model implementation that doesn't require any API
-        # Create a simple fallback model that doesn't require any imports
         class SimpleModel:
             def generate(self, prompt, **kwargs):
                 return "Fallback response. Processing done by Ollama tools."
@@ -1259,6 +1258,14 @@ def create_smolavision_agent(config: Dict[str, Any]):
             def __call__(self, prompt, **kwargs):
                 return self.generate(prompt, **kwargs)
             
+            # Required methods for smolagents compatibility
+            def get_num_tokens(self, text):
+                # Simple approximation: 4 chars ~= 1 token
+                return len(text) // 4
+                
+            def get_max_tokens(self):
+                return 4096
+        
         model = SimpleModel()
         logger.info("Using simple fallback model for agent (actual processing is done by Ollama tools)")
     elif model_type == "anthropic":
