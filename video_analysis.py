@@ -10,9 +10,14 @@ import argparse
 import logging
 import gc
 import base64
+import dotenv
 from io import BytesIO
 from datetime import timedelta
+from pathlib import Path
 from typing import List, Dict, Any, Optional
+
+# Load environment variables from .env file
+dotenv.load_dotenv(Path(__file__).parent / '.env')
 
 # Import computer vision libraries
 import cv2
