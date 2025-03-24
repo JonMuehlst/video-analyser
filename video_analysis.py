@@ -1184,9 +1184,9 @@ def create_smolavision_agent(config: Dict[str, Any]):
     """Create the SmolaVision agent with all tools"""
 
     # Extract configuration
-    model_config = config.get("model", {})
-    api_key = model_config.get("api_key", "")
-    model_type = model_config.get("model_type", "anthropic")
+    model_config = config["model"]
+    api_key = model_config.api_key
+    model_type = model_config.model_type
 
     # Create the tools
     frame_extraction_tool = FrameExtractionTool()

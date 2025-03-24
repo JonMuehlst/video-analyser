@@ -12,26 +12,23 @@ def run_command(command):
     """Run a shell command and print output"""
     print(f"Running: {command}")
     try:
-        # Use subprocess.Popen for better control over encoding
-        process = subprocess.Popen(
+        # Use subprocess.run with explicit encoding settings
+        result = subprocess.run(
             command,
             shell=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            universal_newlines=True,  # Use text mode with default encoding
-            errors='replace'  # Replace problematic characters
+            capture_output=True,
+            encoding='utf-8',  # Use UTF-8 encoding
+            errors='ignore',   # Ignore encoding errors
+            check=False        # Don't raise exception on non-zero exit
         )
         
-        # Get output with encoding error handling
-        stdout, stderr = process.communicate()
-        
-        if stdout:
-            print(stdout)
+        if result.stdout:
+            print(result.stdout)
             
-        if stderr:
-            print(f"Error: {stderr}")
+        if result.stderr:
+            print(f"Error: {result.stderr}")
             
-        return process.returncode == 0
+        return result.returncode == 0
     except Exception as e:
         print(f"Command execution error: {str(e)}")
         return False
