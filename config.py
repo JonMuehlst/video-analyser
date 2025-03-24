@@ -4,6 +4,7 @@ Configuration module for SmolaVision
 import os
 from typing import Dict, Any, Optional
 from dataclasses import dataclass, field, asdict
+from dotenv import load_dotenv
 
 @dataclass
 class OllamaConfig:
@@ -62,6 +63,9 @@ class VideoConfig:
 
 def load_config_from_env() -> Dict[str, Any]:
     """Load configuration from environment variables"""
+    # Load .env file if it exists
+    load_dotenv()
+    
     config = {}
     
     # Model configuration
@@ -77,10 +81,19 @@ def load_config_from_env() -> Dict[str, Any]:
     config["ollama_model"] = os.environ.get("OLLAMA_MODEL", "llama3")
     config["ollama_vision_model"] = os.environ.get("OLLAMA_VISION_MODEL", "llava")
     
+    # Video configuration
+    config["language"] = os.environ.get("DEFAULT_LANGUAGE", "Hebrew")
+    config["frame_interval"] = int(os.environ.get("FRAME_INTERVAL", "10"))
+    config["detect_scenes"] = os.environ.get("DETECT_SCENES", "").lower() == "true"
+    config["scene_threshold"] = float(os.environ.get("SCENE_THRESHOLD", "30.0"))
+    
     return config
 
 def create_default_config(api_key: Optional[str] = None) -> Dict[str, Any]:
     """Create a default configuration"""
+    # Ensure .env file is loaded
+    load_dotenv()
+    
     config = {
         "model": ModelConfig(),
         "video": VideoConfig(),
@@ -101,5 +114,15 @@ def create_default_config(api_key: Optional[str] = None) -> Dict[str, Any]:
         config["model"].ollama.base_url = env_config.get("ollama_base_url", "http://localhost:11434")
         config["model"].ollama.model_name = env_config.get("ollama_model", "llama3")
         config["model"].ollama.vision_model = env_config.get("ollama_vision_model", "llava")
+    
+    # Configure video settings from environment
+    if env_config.get("language"):
+        config["video"].language = env_config.get("language")
+    if env_config.get("frame_interval"):
+        config["video"].frame_interval = env_config.get("frame_interval")
+    if "detect_scenes" in env_config:
+        config["video"].detect_scenes = env_config.get("detect_scenes")
+    if env_config.get("scene_threshold"):
+        config["video"].scene_threshold = env_config.get("scene_threshold")
     
     return config
