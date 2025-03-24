@@ -24,10 +24,13 @@ class OllamaClient:
         try:
             response = requests.get(f"{self.base_url}/api/tags", timeout=5)
             response.raise_for_status()
-            logger.info("Successfully connected to Ollama server")
+            models = [model["name"] for model in response.json().get("models", [])]
+            logger.info(f"Successfully connected to Ollama server. Available models: {', '.join(models[:5])}" + 
+                       (f" and {len(models)-5} more" if len(models) > 5 else ""))
             return True
         except requests.exceptions.ConnectionError:
             logger.warning(f"Could not connect to Ollama server at {self.base_url}")
+            logger.warning("Make sure Ollama is installed and running (https://ollama.com/)")
             return False
         except Exception as e:
             logger.warning(f"Error checking Ollama connection: {str(e)}")
