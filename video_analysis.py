@@ -212,6 +212,41 @@ def run_smolavision(
     if ollama_config.enabled:
         summary_model_name = "ollama"
         logger.info(f"Using Ollama for summarization with model: {ollama_config.model_name}")
+        
+    # Check if we need to use a smaller context window model for large videos
+    # Claude-3-Opus has a 200k token limit
+    try:
+        video_cap = cv2.VideoCapture(video_path)
+        if not video_cap.isOpened():
+            logger.error(f"Could not open video file: {video_path}")
+            return f"Error: Could not open video file: {video_path}"
+            
+        fps = video_cap.get(cv2.CAP_PROP_FPS)
+        frame_count = int(video_cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        duration = frame_count / fps if fps > 0 else 0
+        video_cap.release()
+        
+        # Estimate token count based on video duration and settings
+        estimated_frames = duration / frame_interval
+        if detect_scenes:
+            # Scene detection typically reduces frame count by ~30-50%
+            estimated_frames = estimated_frames * 0.7
+            
+        # Rough estimate: each frame analysis is ~1000 tokens
+        estimated_tokens = estimated_frames * 1000
+        
+        if estimated_tokens > 150000:  # Leave buffer below 200k limit
+            logger.warning(f"Video is very long ({duration:.1f} seconds). Using Claude-3-Sonnet instead of Opus for better token efficiency.")
+            if model_type == "anthropic" and vision_model_name == "claude":
+                vision_model_name = "claude-3-sonnet-20240229"
+                logger.info(f"Switched to {vision_model_name} for vision analysis")
+            
+            # Reduce batch size for very large videos
+            if estimated_tokens > 180000:
+                max_images_per_batch = min(max_images_per_batch, 10)
+                logger.info(f"Reduced batch size to {max_images_per_batch} images per batch")
+    except Exception as e:
+        logger.warning(f"Could not estimate video size: {str(e)}")
 
     # Run the agent to process the video
     task = f"""
@@ -270,7 +305,10 @@ All output files should be saved to: "{output_dir}"
             "mission": mission,
             "generate_flowchart": generate_flowchart,
             "ollama_config": ollama_config.to_dict() if ollama_config.enabled else None,
-            "output_dir": output_dir  # Pass output directory to tools
+            "output_dir": output_dir,  # Pass output directory to tools
+            "max_batch_size_mb": max_batch_size_mb,
+            "max_images_per_batch": max_images_per_batch,
+            "batch_overlap_frames": batch_overlap_frames
         })
 
         # Log completion
@@ -314,6 +352,8 @@ def main():
     parser.add_argument("--enable-ocr", action="store_true", help="Enable OCR text extraction from frames")
     parser.add_argument("--start-time", type=float, default=0.0, help="Start time in seconds (default: 0 = beginning)")
     parser.add_argument("--end-time", type=float, default=0.0, help="End time in seconds (default: 0 = entire video)")
+    parser.add_argument("--segment-duration", type=float, default=0.0, 
+                        help="Process video in segments of this duration (in seconds, 0 = process entire video)")
     parser.add_argument("--mission", default="general", choices=["general", "workflow"],
                         help="Analysis mission type")
     parser.add_argument("--generate-flowchart", action="store_true", help="Generate a workflow flowchart")
@@ -385,8 +425,62 @@ def main():
     video_config.max_images_per_batch = args.max_images_per_batch
     video_config.batch_overlap_frames = args.batch_overlap_frames
 
-    # Run SmolaVision
-    result = run_smolavision(video_path=args.video, config=config)
+    # Check if we need to process the video in segments
+    if args.segment_duration > 0:
+        try:
+            # Get video duration
+            video_cap = cv2.VideoCapture(args.video)
+            if not video_cap.isOpened():
+                print(f"Error: Could not open video file: {args.video}")
+                return
+                
+            fps = video_cap.get(cv2.CAP_PROP_FPS)
+            frame_count = int(video_cap.get(cv2.CAP_PROP_FRAME_COUNT))
+            total_duration = frame_count / fps if fps > 0 else 0
+            video_cap.release()
+            
+            # Process video in segments
+            segment_results = []
+            start_time = args.start_time
+            end_time = min(start_time + args.segment_duration, total_duration) if total_duration > 0 else start_time + args.segment_duration
+            
+            print(f"Processing video in segments of {args.segment_duration} seconds")
+            segment_count = 1
+            
+            while start_time < total_duration if total_duration > 0 else True:
+                print(f"\nProcessing segment {segment_count}: {start_time:.1f}s to {end_time:.1f}s")
+                
+                # Update config for this segment
+                video_config.start_time = start_time
+                video_config.end_time = end_time
+                
+                # Run SmolaVision for this segment
+                segment_result = run_smolavision(video_path=args.video, config=config)
+                
+                if isinstance(segment_result, dict) and "error" not in segment_result:
+                    segment_results.append(segment_result)
+                    print(f"Segment {segment_count} completed successfully")
+                else:
+                    print(f"Error processing segment {segment_count}: {segment_result}")
+                
+                # Move to next segment
+                start_time = end_time
+                end_time = min(start_time + args.segment_duration, total_duration) if total_duration > 0 else start_time + args.segment_duration
+                segment_count += 1
+                
+                # Break if we've reached the end or if an end time was specified
+                if (total_duration > 0 and start_time >= total_duration) or (args.end_time > 0 and start_time >= args.end_time):
+                    break
+            
+            # TODO: Combine segment results into a single result
+            # For now, just return the last segment result
+            result = segment_results[-1] if segment_results else "No segments processed successfully"
+        except Exception as e:
+            print(f"Error processing video in segments: {str(e)}")
+            result = f"Error: {str(e)}"
+    else:
+        # Run SmolaVision for the entire video
+        result = run_smolavision(video_path=args.video, config=config)
 
     # Print result information
     if isinstance(result, dict):
