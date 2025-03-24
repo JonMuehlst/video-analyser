@@ -282,6 +282,14 @@ Analyze the video at path "{video_path}" with the following steps:
    - Use "{summary_model_name}" as the summary model
    {'- Use mission type "' + mission + '"' if mission != "general" else ''}
    {'- Generate a workflow flowchart' if generate_flowchart else ''}
+   - Create a detailed, structured summary with clear sections for:
+     * Overview/Introduction
+     * Key Steps in the Workflow
+     * Prompting Strategies
+     * UI Elements and Functions
+     * Logical Sequence and Dependencies
+     * Best Practices Demonstrated
+   - Provide granular details about each aspect of the workflow
    - Save all outputs to the directory: "{output_dir}"
 
 The goal is to create a comprehensive analysis of the video, capturing all visual elements,
@@ -308,7 +316,17 @@ All output files should be saved to: "{output_dir}"
             "output_dir": output_dir,  # Pass output directory to tools
             "max_batch_size_mb": max_batch_size_mb,
             "max_images_per_batch": max_images_per_batch,
-            "batch_overlap_frames": batch_overlap_frames
+            "batch_overlap_frames": batch_overlap_frames,
+            "summary_sections": [
+                "Overview",
+                "Key Steps in the Workflow",
+                "Prompting Strategies",
+                "UI Elements and Functions",
+                "Logical Sequence and Dependencies",
+                "Best Practices Demonstrated"
+            ],
+            "summary_detail_level": "high",  # Request highly detailed summaries
+            "include_examples": True         # Include examples of prompts and responses
         })
 
         # Log completion
@@ -489,14 +507,55 @@ def main():
         else:
             print("\nSummary of video:")
             print("-" * 80)
-            print(
-                result["summary_text"][:1000] + "..." if len(result["summary_text"]) > 1000 else result["summary_text"])
-            print("-" * 80)
+            
+            # Print a more structured summary with sections
+            summary_text = result.get("summary_text", "")
+            
+            # Try to extract sections from the summary if they exist
+            sections = {}
+            current_section = "Overview"
+            section_content = []
+            
+            for line in summary_text.split('\n'):
+                if line.strip() and (line.strip().endswith(':') or 
+                                    line.strip().startswith('# ') or 
+                                    line.strip().startswith('## ')):
+                    # This looks like a section header
+                    if section_content:
+                        sections[current_section] = '\n'.join(section_content)
+                        section_content = []
+                    current_section = line.strip().replace('# ', '').replace('## ', '')
+                    if current_section.endswith(':'):
+                        current_section = current_section[:-1]
+                else:
+                    section_content.append(line)
+            
+            # Add the last section
+            if section_content:
+                sections[current_section] = '\n'.join(section_content)
+            
+            # Print the structured summary
+            if sections and len(sections) > 1:
+                for section, content in sections.items():
+                    print(f"\n{section}:")
+                    print("-" * len(section) + "-")
+                    print(content.strip())
+            else:
+                # Fall back to the original summary if no sections were found
+                print(summary_text[:1000] + "..." if len(summary_text) > 1000 else summary_text)
+            
+            print("\n" + "-" * 80)
             print(f"Full summary saved to: {result['coherent_summary']}")
             print(f"Full analysis saved to: {result['full_analysis']}")
 
             if "flowchart" in result:
                 print(f"Workflow flowchart saved to: {result['flowchart']}")
+                
+            # Provide a hint about viewing the mermaid diagram
+            if "flowchart" in result and result["flowchart"].endswith(".mmd"):
+                print("\nTo view the flowchart, you can use the Mermaid Live Editor:")
+                print("1. Open https://mermaid.live/")
+                print("2. Copy the contents of the .mmd file and paste it into the editor")
     else:
         print(result)
 
