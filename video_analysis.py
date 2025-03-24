@@ -1264,6 +1264,10 @@ def create_smolavision_agent(config: Dict[str, Any]):
             class SimpleModel:
                 def generate(self, prompt, **kwargs):
                     return "Fallback response. Processing done by Ollama tools."
+                
+                def __call__(self, prompt, **kwargs):
+                    return self.generate(prompt, **kwargs)
+                
             model = SimpleModel()
             logger.info("Using simple fallback model for agent")
     elif model_type == "anthropic":
