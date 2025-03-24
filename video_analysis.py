@@ -235,6 +235,10 @@ def run_smolavision(
         # Rough estimate: each frame analysis is ~1000 tokens
         estimated_tokens = estimated_frames * 1000
         
+        # Calculate segment duration if needed
+        segment_duration = end_time - start_time if end_time > start_time else duration
+        
+        # Adjust model and batch size based on estimated token count
         if estimated_tokens > 150000:  # Leave buffer below 200k limit
             logger.warning(f"Video is very long ({duration:.1f} seconds). Using Claude-3-Sonnet instead of Opus for better token efficiency.")
             if model_type == "anthropic" and vision_model_name == "claude":
@@ -243,8 +247,12 @@ def run_smolavision(
             
             # Reduce batch size for very large videos
             if estimated_tokens > 180000:
-                max_images_per_batch = min(max_images_per_batch, 10)
+                max_images_per_batch = min(max_images_per_batch, 8)
                 logger.info(f"Reduced batch size to {max_images_per_batch} images per batch")
+                
+            # Recommend segmentation if not already segmented
+            if segment_duration > 300 and segment_duration == duration:  # If processing more than 5 minutes at once
+                logger.warning(f"Consider using --segment-duration 300 for better results with long videos")
     except Exception as e:
         logger.warning(f"Could not estimate video size: {str(e)}")
 
@@ -326,7 +334,9 @@ All output files should be saved to: "{output_dir}"
                 "Best Practices Demonstrated"
             ],
             "summary_detail_level": "high",  # Request highly detailed summaries
-            "include_examples": True         # Include examples of prompts and responses
+            "include_examples": True,        # Include examples of prompts and responses
+            "max_tokens_per_batch": 150000,  # Maximum tokens per batch for Claude
+            "chunk_large_batches": True      # Enable chunking for large batches
         })
 
         # Log completion
@@ -457,6 +467,10 @@ def main():
             total_duration = frame_count / fps if fps > 0 else 0
             video_cap.release()
             
+            # Create a timestamp for this run
+            now = datetime.now()
+            formatted_time = now.strftime("%Y%m%d%H%M")
+            
             # Process video in segments
             segment_results = []
             start_time = args.start_time
@@ -464,6 +478,10 @@ def main():
             
             print(f"Processing video in segments of {args.segment_duration} seconds")
             segment_count = 1
+            
+            # Reduce batch size for segmented processing to avoid token limit issues
+            video_config.max_images_per_batch = min(args.max_images_per_batch, 10)
+            logger.info(f"Using reduced batch size of {video_config.max_images_per_batch} for segmented processing")
             
             while start_time < total_duration if total_duration > 0 else True:
                 print(f"\nProcessing segment {segment_count}: {start_time:.1f}s to {end_time:.1f}s")
@@ -490,9 +508,67 @@ def main():
                 if (total_duration > 0 and start_time >= total_duration) or (args.end_time > 0 and start_time >= args.end_time):
                     break
             
-            # TODO: Combine segment results into a single result
-            # For now, just return the last segment result
-            result = segment_results[-1] if segment_results else "No segments processed successfully"
+            # Combine segment results into a single result
+            if segment_results:
+                # Create a combined result dictionary
+                combined_result = segment_results[0].copy() if isinstance(segment_results[0], dict) else {}
+                
+                # Collect all analyses for summarization
+                all_analyses = []
+                for segment_result in segment_results:
+                    if isinstance(segment_result, dict) and "analyses" in segment_result:
+                        all_analyses.extend(segment_result["analyses"])
+                
+                # Generate a combined summary
+                if all_analyses:
+                    try:
+                        # Create a new output directory for the combined result
+                        combined_output_dir = os.path.join("output", f"{formatted_time}_combined")
+                        os.makedirs(combined_output_dir, exist_ok=True)
+                        
+                        # Create the summarization tool
+                        summarization_tool = SummarizationTool()
+                        
+                        # Generate the combined summary
+                        summary_result = summarization_tool.forward(
+                            analyses=all_analyses,
+                            language=args.language,
+                            model_name=model_config.summary_model,
+                            api_key=api_key,
+                            mission=args.mission,
+                            generate_flowchart=args.generate_flowchart,
+                            output_dir=combined_output_dir
+                        )
+                        
+                        # Update the combined result with the summary
+                        if isinstance(summary_result, dict):
+                            for key, value in summary_result.items():
+                                combined_result[key] = value
+                        
+                        # Update paths to use the combined output directory
+                        for key in combined_result:
+                            if isinstance(combined_result[key], str) and (
+                                key.endswith('_path') or key in ['coherent_summary', 'full_analysis', 'flowchart']
+                            ):
+                                # Update the path to use the combined output directory
+                                combined_result[key] = os.path.join(
+                                    combined_output_dir, 
+                                    os.path.basename(combined_result[key])
+                                )
+                        
+                        result = combined_result
+                        logger.info(f"Combined summary generated in: {combined_output_dir}")
+                    except Exception as e:
+                        logger.error(f"Error generating combined summary: {str(e)}")
+                        # Fall back to the last segment result
+                        result = segment_results[-1]
+                        logger.info("Using last segment result as fallback")
+                else:
+                    # Fall back to the last segment result
+                    result = segment_results[-1]
+                    logger.info("No analyses found, using last segment result")
+            else:
+                result = "No segments processed successfully"
         except Exception as e:
             print(f"Error processing video in segments: {str(e)}")
             result = f"Error: {str(e)}"
