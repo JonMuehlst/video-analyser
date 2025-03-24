@@ -128,7 +128,7 @@ class FrameExtractionTool(Tool):
                 logger.info("Detecting scene changes...")
                 prev_frame = None
                 last_scene_change_time = -float('inf')  # Track the last scene change time
-                min_scene_duration = video_config.min_scene_duration if 'video_config' in locals() else 1.0
+                min_scene_duration = 1.0  # Default minimum scene duration in seconds
 
                 # Check more frequently for scene changes (4 times per second)
                 scene_check_interval = max(1, int(fps / 4))
