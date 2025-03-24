@@ -76,19 +76,33 @@ class OllamaClient:
         """Generate text using an Ollama model"""
         url = f"{self.base_url}/api/generate"
         
+        # Adjust parameters based on model size to prevent OOM errors
+        adjusted_max_tokens = max_tokens
+        if "phi" in model or "gemma:2b" in model:
+            adjusted_max_tokens = min(max_tokens, 2048)  # Smaller limit for smaller models
+        elif "tiny" in model or "1b" in model:
+            adjusted_max_tokens = min(max_tokens, 1024)  # Even smaller limit for tiny models
+        
         payload = {
             "model": model,
             "prompt": prompt,
             "stream": False,
             "options": {
-                "num_predict": max_tokens
+                "num_predict": adjusted_max_tokens
             }
         }
+        
+        # Add GPU-specific options to prevent OOM errors
+        if "3060" in model or any(small_model in model for small_model in ["phi", "gemma:2b", "tiny", "1b", "7b"]):
+            payload["options"].update({
+                "gpu_layers": -1,  # Use all layers that fit on GPU
+                "f16": True,       # Use half-precision for better memory usage
+            })
         
         if system_prompt:
             payload["system"] = system_prompt
             
-        logger.debug(f"Sending request to Ollama: {model}")
+        logger.debug(f"Sending request to Ollama: {model} (max tokens: {adjusted_max_tokens})")
         success, result = self._make_request(url, payload)
         
         if success:
@@ -114,6 +128,12 @@ class OllamaClient:
         """
         url = f"{self.base_url}/api/generate"
         
+        # Adjust parameters based on model and number of images to prevent OOM errors
+        adjusted_max_tokens = max_tokens
+        if len(images) > 2:
+            # Reduce token limit for multiple images
+            adjusted_max_tokens = min(max_tokens, 2048)
+        
         # Format images for Ollama
         formatted_images = []
         for img_base64 in images:
@@ -128,11 +148,13 @@ class OllamaClient:
             "stream": False,
             "images": formatted_images,
             "options": {
-                "num_predict": max_tokens
+                "num_predict": adjusted_max_tokens,
+                "gpu_layers": -1,  # Use all layers that fit on GPU
+                "f16": True        # Use half-precision for better memory usage
             }
         }
         
-        logger.debug(f"Sending vision request to Ollama: {model} with {len(images)} images")
+        logger.debug(f"Sending vision request to Ollama: {model} with {len(images)} images (max tokens: {adjusted_max_tokens})")
         success, result = self._make_request(url, payload)
         
         if success:

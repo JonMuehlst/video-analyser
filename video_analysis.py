@@ -514,20 +514,56 @@ class VisionAnalysisTool(Tool):
                 if not hasattr(self, '_ollama_client') or self._ollama_client is None:
                     self._ollama_client = OllamaClient(base_url=base_url)
                 
-                # Extract base64 images for Ollama
-                images = []
-                for frame in batch:
-                    base64_image = frame.get('base64_image', '')
-                    if base64_image and isinstance(base64_image, str):
-                        images.append(base64_image)
+                # For smaller GPUs, we need to be careful with batch size
+                # Process images in smaller sub-batches if needed
+                max_images_per_request = 3  # Limit for 12GB VRAM
                 
-                # Call Ollama vision model
-                analysis = self._ollama_client.generate_vision(
-                    model=vision_model,
-                    prompt=prompt,
-                    images=images,
-                    max_tokens=4096
-                )
+                if len(batch) > max_images_per_request:
+                    logger.info(f"Batch size ({len(batch)}) exceeds max images per request ({max_images_per_request}). Processing in sub-batches.")
+                    
+                    # Process in sub-batches and combine results
+                    sub_batch_results = []
+                    for i in range(0, len(batch), max_images_per_request):
+                        sub_batch = batch[i:i + max_images_per_request]
+                        
+                        # Extract base64 images for this sub-batch
+                        images = []
+                        for frame in sub_batch:
+                            base64_image = frame.get('base64_image', '')
+                            if base64_image and isinstance(base64_image, str):
+                                images.append(base64_image)
+                        
+                        # Create a sub-prompt
+                        sub_prompt = f"Analyzing frames {i+1} to {i+len(sub_batch)} of {len(batch)}:\n{prompt}"
+                        
+                        # Call Ollama vision model for this sub-batch
+                        sub_result = self._ollama_client.generate_vision(
+                            model=vision_model,
+                            prompt=sub_prompt,
+                            images=images,
+                            max_tokens=2048  # Smaller token limit for sub-batches
+                        )
+                        
+                        sub_batch_results.append(sub_result)
+                    
+                    # Combine results
+                    analysis = "\n\n".join(sub_batch_results)
+                else:
+                    # Process the whole batch at once
+                    # Extract base64 images for Ollama
+                    images = []
+                    for frame in batch:
+                        base64_image = frame.get('base64_image', '')
+                        if base64_image and isinstance(base64_image, str):
+                            images.append(base64_image)
+                    
+                    # Call Ollama vision model
+                    analysis = self._ollama_client.generate_vision(
+                        model=vision_model,
+                        prompt=prompt,
+                        images=images,
+                        max_tokens=4096
+                    )
                 
             # Prepare images based on the model
             elif model_name.startswith("claude"):
@@ -940,11 +976,21 @@ VIDEO ANALYSIS (MIDDLE PART):
                     if not hasattr(self, '_ollama_client') or self._ollama_client is None:
                         self._ollama_client = OllamaClient(base_url=base_url)
                     
-                    # Call Ollama model
+                    # For smaller models, we need to be more careful with context length
+                    # Determine if we should use a smaller model for better performance
+                    if len(prompt) > 8000 and "small_models" in ollama_config:
+                        # Use the smallest model for very large prompts
+                        logger.info(f"Using smaller model for large prompt ({len(prompt)} chars)")
+                        model = ollama_config.get("small_models", {}).get("fast", model)
+                    
+                    # Call Ollama model with appropriate token limit
+                    # Smaller models need smaller token limits
+                    max_tokens = 2048 if "phi" in model or "gemma:2b" in model or "tiny" in model else 4096
+                    
                     chunk_summary = self._ollama_client.generate(
                         model=model,
                         prompt=prompt,
-                        max_tokens=4096
+                        max_tokens=max_tokens
                     )
                 
                 # Call the LLM API based on model name

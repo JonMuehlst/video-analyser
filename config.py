@@ -12,6 +12,14 @@ class OllamaConfig:
     base_url: str = "http://localhost:11434"
     model_name: str = "llama3"
     vision_model: str = "llava"
+    # Models suitable for 12GB VRAM (3060)
+    small_models: Dict[str, str] = field(default_factory=lambda: {
+        "text": "phi3:mini",       # Phi-3 Mini (3.8B parameters)
+        "vision": "bakllava:7b",   # Bakllava 7B (LLaVA architecture)
+        "chat": "mistral:7b",      # Mistral 7B
+        "fast": "gemma:2b",        # Gemma 2B
+        "tiny": "tinyllama:1.1b"   # TinyLlama 1.1B
+    })
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary"""
