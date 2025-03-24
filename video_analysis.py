@@ -466,6 +466,11 @@ class VisionAnalysisTool(Tool):
             "type": "string",
             "description": "Specific analysis mission (e.g., 'workflow', 'general')",
             "nullable": True
+        },
+        "ollama_config": {
+            "type": "object",
+            "description": "Configuration for Ollama local models",
+            "nullable": True
         }
     }
     output_type = "string"
@@ -823,6 +828,11 @@ class SummarizationTool(Tool):
         "generate_flowchart": {
             "type": "boolean",
             "description": "Whether to generate a flowchart diagram",
+            "nullable": True
+        },
+        "ollama_config": {
+            "type": "object",
+            "description": "Configuration for Ollama local models",
             "nullable": True
         }
     }
@@ -1396,7 +1406,7 @@ text content (with translations), and {'workflow logic' if mission == 'workflow'
             "end_time": end_time,
             "mission": mission,
             "generate_flowchart": generate_flowchart,
-            "ollama_config": ollama_config if ollama_config.enabled else None
+            "ollama_config": ollama_config.to_dict() if ollama_config.enabled else None
         })
 
         # Log completion
