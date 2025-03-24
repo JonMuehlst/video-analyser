@@ -80,6 +80,14 @@ def main():
     model_config.ollama.base_url = "http://localhost:11434"
     model_config.api_key = None  # Ensure we don't try to use any API keys
     
+    # Add small models configuration if not present
+    if not hasattr(model_config.ollama, "small_models"):
+        model_config.ollama.small_models = {
+            "text": "phi3:mini",
+            "vision": "llava",
+            "fast": "phi3:mini"
+        }
+    
     # Make sure we don't try to use any cloud APIs
     # First remove any existing keys
     os.environ.pop("ANTHROPIC_API_KEY", None)

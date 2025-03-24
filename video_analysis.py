@@ -1252,8 +1252,13 @@ def create_smolavision_agent(config: Dict[str, Any]):
         # The actual Ollama calls are handled in the tools
         # Create a minimal model implementation that doesn't require any API
         class SimpleModel:
+            class Response:
+                def __init__(self, text):
+                    self.content = text
+            
             def generate(self, prompt, **kwargs):
-                return "Fallback response. Processing done by Ollama tools."
+                # Return an object with content attribute to match expected structure
+                return self.Response("Fallback response. Processing done by Ollama tools.")
             
             def __call__(self, prompt, **kwargs):
                 return self.generate(prompt, **kwargs)
