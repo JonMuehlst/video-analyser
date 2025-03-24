@@ -1272,84 +1272,78 @@ def run_smolavision(
     
     # Update model configuration
     if api_key is not None:
-        model_config["api_key"] = api_key
+        model_config.api_key = api_key
     if model_type is not None:
-        model_config["model_type"] = model_type
+        model_config.model_type = model_type
     if vision_model is not None:
-        model_config["vision_model"] = vision_model
+        model_config.vision_model = vision_model
     if summary_model is not None:
-        model_config["summary_model"] = summary_model
+        model_config.summary_model = summary_model
     
     # Update Ollama configuration
-    ollama_config = model_config.get("ollama", {})
     if ollama_enabled is not None:
-        ollama_config["enabled"] = ollama_enabled
+        model_config.ollama.enabled = ollama_enabled
     if ollama_base_url is not None:
-        ollama_config["base_url"] = ollama_base_url
+        model_config.ollama.base_url = ollama_base_url
     if ollama_model is not None:
-        ollama_config["model_name"] = ollama_model
+        model_config.ollama.model_name = ollama_model
     if ollama_vision_model is not None:
-        ollama_config["vision_model"] = ollama_vision_model
-    model_config["ollama"] = ollama_config
+        model_config.ollama.vision_model = ollama_vision_model
     
     # Update video configuration
     if language is not None:
-        video_config["language"] = language
+        video_config.language = language
     if frame_interval is not None:
-        video_config["frame_interval"] = frame_interval
+        video_config.frame_interval = frame_interval
     if detect_scenes is not None:
-        video_config["detect_scenes"] = detect_scenes
+        video_config.detect_scenes = detect_scenes
     if scene_threshold is not None:
-        video_config["scene_threshold"] = scene_threshold
+        video_config.scene_threshold = scene_threshold
     if enable_ocr is not None:
-        video_config["enable_ocr"] = enable_ocr
+        video_config.enable_ocr = enable_ocr
     if start_time is not None:
-        video_config["start_time"] = start_time
+        video_config.start_time = start_time
     if end_time is not None:
-        video_config["end_time"] = end_time
+        video_config.end_time = end_time
     if mission is not None:
-        video_config["mission"] = mission
+        video_config.mission = mission
     if generate_flowchart is not None:
-        video_config["generate_flowchart"] = generate_flowchart
-    
-    # Update the config with modified sections
-    config["model"] = model_config
-    config["video"] = video_config
+        video_config.generate_flowchart = generate_flowchart
     
     # Extract configuration values for use in the task
-    api_key = model_config.get("api_key", "")
-    model_type = model_config.get("model_type", "anthropic")
-    vision_model = model_config.get("vision_model", "claude")
-    summary_model = model_config.get("summary_model", "claude-3-5-sonnet-20240620")
-    ollama_config = model_config.get("ollama", {})
+    api_key = model_config.api_key
+    model_type = model_config.model_type
+    vision_model = model_config.vision_model
+    summary_model = model_config.summary_model
+    ollama_config = model_config.ollama
     
-    language = video_config.get("language", "Hebrew")
-    frame_interval = video_config.get("frame_interval", 10)
-    detect_scenes = video_config.get("detect_scenes", True)
-    scene_threshold = video_config.get("scene_threshold", 30.0)
-    enable_ocr = video_config.get("enable_ocr", True)
-    start_time = video_config.get("start_time", 0.0)
-    end_time = video_config.get("end_time", 0.0)
-    mission = video_config.get("mission", "general")
-    generate_flowchart = video_config.get("generate_flowchart", False)
-    max_batch_size_mb = video_config.get("max_batch_size_mb", 10.0)
-    max_images_per_batch = video_config.get("max_images_per_batch", 15)
-    batch_overlap_frames = video_config.get("batch_overlap_frames", 2)
+    language = video_config.language
+    frame_interval = video_config.frame_interval
+    detect_scenes = video_config.detect_scenes
+    scene_threshold = video_config.scene_threshold
+    enable_ocr = video_config.enable_ocr
+    start_time = video_config.start_time
+    end_time = video_config.end_time
+    mission = video_config.mission
+    generate_flowchart = video_config.generate_flowchart
+    max_batch_size_mb = video_config.max_batch_size_mb
+    max_images_per_batch = video_config.max_images_per_batch
+    batch_overlap_frames = video_config.batch_overlap_frames
 
     # Create the agent
     agent = create_smolavision_agent(config)
 
     # Determine which model to use for vision analysis
     vision_model_name = vision_model
-    if ollama_config.get("enabled"):
+    if ollama_config.enabled:
         vision_model_name = "ollama"
-        logger.info(f"Using Ollama for vision analysis with model: {ollama_config.get('vision_model')}")
+        logger.info(f"Using Ollama for vision analysis with model: {ollama_config.vision_model}")
 
     # Determine which model to use for summarization
     summary_model_name = summary_model
-    if ollama_config.get("enabled"):
+    if ollama_config.enabled:
         summary_model_name = "ollama"
-        logger.info(f"Using Ollama for summarization with model: {ollama_config.get('model_name')}")
+        logger.info(f"Using Ollama for summarization with model: {ollama_config.model_name}")
 
     # Run the agent to process the video
     task = f"""
@@ -1402,7 +1396,7 @@ text content (with translations), and {'workflow logic' if mission == 'workflow'
             "end_time": end_time,
             "mission": mission,
             "generate_flowchart": generate_flowchart,
-            "ollama_config": ollama_config if ollama_config.get("enabled") else None
+            "ollama_config": ollama_config if ollama_config.enabled else None
         })
 
         # Log completion
@@ -1475,29 +1469,31 @@ def main():
     config = create_default_config(api_key)
     
     # Update model configuration
-    config["model"]["model_type"] = args.model_type
-    config["model"]["vision_model"] = args.vision_model
-    config["model"]["summary_model"] = args.summary_model
+    model_config = config["model"]
+    model_config.model_type = args.model_type
+    model_config.vision_model = args.vision_model
+    model_config.summary_model = args.summary_model
     
     # Update Ollama configuration
-    config["model"]["ollama"]["enabled"] = args.ollama_enabled or args.model_type == "ollama"
-    config["model"]["ollama"]["base_url"] = args.ollama_base_url
-    config["model"]["ollama"]["model_name"] = args.ollama_model
-    config["model"]["ollama"]["vision_model"] = args.ollama_vision_model
+    model_config.ollama.enabled = args.ollama_enabled or args.model_type == "ollama"
+    model_config.ollama.base_url = args.ollama_base_url
+    model_config.ollama.model_name = args.ollama_model
+    model_config.ollama.vision_model = args.ollama_vision_model
     
     # Update video configuration
-    config["video"]["language"] = args.language
-    config["video"]["frame_interval"] = args.frame_interval
-    config["video"]["detect_scenes"] = args.detect_scenes
-    config["video"]["scene_threshold"] = args.scene_threshold
-    config["video"]["enable_ocr"] = args.enable_ocr
-    config["video"]["start_time"] = args.start_time
-    config["video"]["end_time"] = args.end_time
-    config["video"]["mission"] = args.mission
-    config["video"]["generate_flowchart"] = args.generate_flowchart
-    config["video"]["max_batch_size_mb"] = args.max_batch_size_mb
-    config["video"]["max_images_per_batch"] = args.max_images_per_batch
-    config["video"]["batch_overlap_frames"] = args.batch_overlap_frames
+    video_config = config["video"]
+    video_config.language = args.language
+    video_config.frame_interval = args.frame_interval
+    video_config.detect_scenes = args.detect_scenes
+    video_config.scene_threshold = args.scene_threshold
+    video_config.enable_ocr = args.enable_ocr
+    video_config.start_time = args.start_time
+    video_config.end_time = args.end_time
+    video_config.mission = args.mission
+    video_config.generate_flowchart = args.generate_flowchart
+    video_config.max_batch_size_mb = args.max_batch_size_mb
+    video_config.max_images_per_batch = args.max_images_per_batch
+    video_config.batch_overlap_frames = args.batch_overlap_frames
 
     # Run SmolaVision
     result = run_smolavision(video_path=args.video, config=config)

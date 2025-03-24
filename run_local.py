@@ -13,11 +13,12 @@ def main():
     config = create_default_config()
     
     # Configure for Ollama with smaller models suitable for 12GB VRAM (3060)
-    config["model"]["model_type"] = "ollama"
-    config["model"]["ollama"]["enabled"] = True
-    config["model"]["ollama"]["base_url"] = "http://localhost:11434"
-    config["model"]["ollama"]["model_name"] = config["model"]["ollama"]["small_models"]["text"]  # Use phi3:mini
-    config["model"]["ollama"]["vision_model"] = config["model"]["ollama"]["small_models"]["vision"]  # Use bakllava:7b
+    model_config = config["model"]
+    model_config.model_type = "ollama"
+    model_config.ollama.enabled = True
+    model_config.ollama.base_url = "http://localhost:11434"
+    model_config.ollama.model_name = model_config.ollama.small_models["text"]  # Use phi3:mini
+    model_config.ollama.vision_model = model_config.ollama.small_models["vision"]  # Use bakllava:7b
     
     # Configure video processing
     config["video"]["language"] = "Hebrew"

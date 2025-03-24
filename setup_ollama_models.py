@@ -36,7 +36,7 @@ def main():
     
     # Get model names from config
     config = create_default_config()
-    small_models = config["model"]["ollama"]["small_models"]
+    small_models = config["model"].ollama.small_models
     
     # Check if Ollama is installed
     if not run_command("ollama --version"):
