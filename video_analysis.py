@@ -1242,20 +1242,13 @@ def create_smolavision_agent(config: Dict[str, Any]):
     if model_type == "ollama":
         # For Ollama, we'll use a local model through the API
         # The actual Ollama calls are handled in the tools
-        # Use HfApiModel as a fallback that doesn't require API keys
-        try:
-            model = HfApiModel(model_id="meta-llama/Llama-3.3-70B-Instruct", token=None)
-            logger.info("Using Ollama for local model inference (agent will use a placeholder model)")
-        except Exception as e:
-            # If HfApiModel fails, use a simple fallback that doesn't require any API
-            logger.warning(f"Failed to create HfApiModel: {str(e)}")
-            # Create a minimal model implementation that doesn't require any API
-            from smolagents.models.base import BaseModel
-            class FallbackModel(BaseModel):
-                def generate(self, prompt, **kwargs):
-                    return "This is a fallback model response. The actual processing is done by Ollama tools."
-            model = FallbackModel()
-            logger.info("Using fallback model for agent (actual processing is done by Ollama tools)")
+        # Create a minimal model implementation that doesn't require any API
+        from smolagents.models.base import BaseModel
+        class FallbackModel(BaseModel):
+            def generate(self, prompt, **kwargs):
+                return "This is a fallback model response. The actual processing is done by Ollama tools."
+        model = FallbackModel()
+        logger.info("Using fallback model for agent (actual processing is done by Ollama tools)")
     elif model_type == "anthropic":
         model = LiteLLMModel(model_id="anthropic/claude-3-opus-20240229", api_key=api_key)
     elif model_type == "openai":

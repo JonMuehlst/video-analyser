@@ -85,6 +85,11 @@ def main():
     os.environ.pop("OPENAI_API_KEY", None)
     os.environ.pop("HF_TOKEN", None)
     
+    # Set empty environment variables to prevent any API calls
+    os.environ["ANTHROPIC_API_KEY"] = ""
+    os.environ["OPENAI_API_KEY"] = ""
+    os.environ["HF_TOKEN"] = ""
+    
     # Check available models and set appropriate defaults
     try:
         # Try to get available models
