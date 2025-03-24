@@ -81,14 +81,20 @@ def main():
     model_config.api_key = None  # Ensure we don't try to use any API keys
     
     # Make sure we don't try to use any cloud APIs
+    # First remove any existing keys
     os.environ.pop("ANTHROPIC_API_KEY", None)
     os.environ.pop("OPENAI_API_KEY", None)
     os.environ.pop("HF_TOKEN", None)
     
     # Set empty environment variables to prevent any API calls
-    os.environ["ANTHROPIC_API_KEY"] = ""
-    os.environ["OPENAI_API_KEY"] = ""
-    os.environ["HF_TOKEN"] = ""
+    # This ensures libraries don't try to use default credentials
+    os.environ["ANTHROPIC_API_KEY"] = "none"
+    os.environ["OPENAI_API_KEY"] = "none"
+    os.environ["HF_TOKEN"] = "none"
+    
+    # Disable any potential auto-authentication
+    os.environ["HUGGINGFACE_HUB_DISABLE_IMPLICIT_TOKEN"] = "1"
+    os.environ["HUGGINGFACE_HUB_DISABLE_TELEMETRY"] = "1"
     
     # Check available models and set appropriate defaults
     try:
@@ -166,22 +172,27 @@ def main():
         print("python run_local.py \"path/to/your/video.mp4\"")
         return
     
-    # Run SmolaVision
-    result = run_smolavision(video_path=video_path, config=config)
-    
-    # Print result
-    if isinstance(result, dict):
-        if "error" in result:
-            print(f"Error: {result['error']}")
+    try:
+        # Run SmolaVision
+        result = run_smolavision(video_path=video_path, config=config)
+        
+        # Print result
+        if isinstance(result, dict):
+            if "error" in result:
+                print(f"Error: {result['error']}")
+            else:
+                print("\nSummary of video:")
+                print("-" * 80)
+                print(result["summary_text"][:1000] + "..." if len(result["summary_text"]) > 1000 else result["summary_text"])
+                print("-" * 80)
+                print(f"Full summary saved to: {result['coherent_summary']}")
+                print(f"Full analysis saved to: {result['full_analysis']}")
         else:
-            print("\nSummary of video:")
-            print("-" * 80)
-            print(result["summary_text"][:1000] + "..." if len(result["summary_text"]) > 1000 else result["summary_text"])
-            print("-" * 80)
-            print(f"Full summary saved to: {result['coherent_summary']}")
-            print(f"Full analysis saved to: {result['full_analysis']}")
-    else:
-        print(result)
+            print(result)
+    except Exception as e:
+        print(f"Error running SmolaVision: {str(e)}")
+        import traceback
+        traceback.print_exc()
 
 if __name__ == "__main__":
     main()

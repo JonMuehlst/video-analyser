@@ -512,16 +512,20 @@ class VisionAnalysisTool(Tool):
             # Check if using Ollama
             if model_name == "ollama" or (ollama_config and ollama_config.get("enabled")):
                 # Use Ollama for local inference
-                base_url = ollama_config.get("base_url", "http://localhost:11434")
-                vision_model = ollama_config.get("vision_model", "llava")
+                base_url = ollama_config.get("base_url", "http://localhost:11434") if ollama_config else "http://localhost:11434"
+                vision_model = ollama_config.get("vision_model", "llava") if ollama_config else "llava"
                 
                 # Create or reuse Ollama client
-                if not hasattr(self, '_ollama_client') or self._ollama_client is None:
-                    self._ollama_client = OllamaClient(base_url=base_url)
-                
-                # For smaller GPUs, we need to be careful with batch size
-                # Process images in smaller sub-batches if needed
-                max_images_per_request = 3  # Limit for 12GB VRAM
+                try:
+                    if not hasattr(self, '_ollama_client') or self._ollama_client is None:
+                        self._ollama_client = OllamaClient(base_url=base_url)
+                    
+                    # For smaller GPUs, we need to be careful with batch size
+                    # Process images in smaller sub-batches if needed
+                    max_images_per_request = 3  # Limit for 12GB VRAM
+                except Exception as e:
+                    logger.error(f"Error initializing Ollama client: {str(e)}")
+                    return f"Error initializing Ollama client: {str(e)}"
                 
                 if len(batch) > max_images_per_request:
                     logger.info(f"Batch size ({len(batch)}) exceeds max images per request ({max_images_per_request}). Processing in sub-batches.")
@@ -992,13 +996,17 @@ VIDEO ANALYSIS (MIDDLE PART):
 
                 # Check if using Ollama
                 if model_name == "ollama" or (ollama_config and ollama_config.get("enabled")):
-                    # Use Ollama for local inference
-                    base_url = ollama_config.get("base_url", "http://localhost:11434")
-                    model = ollama_config.get("model_name", "llama3")
-                    
-                    # Create or reuse Ollama client
-                    if not hasattr(self, '_ollama_client') or self._ollama_client is None:
-                        self._ollama_client = OllamaClient(base_url=base_url)
+                    try:
+                        # Use Ollama for local inference
+                        base_url = ollama_config.get("base_url", "http://localhost:11434") if ollama_config else "http://localhost:11434"
+                        model = ollama_config.get("model_name", "llama3") if ollama_config else "llama3"
+                        
+                        # Create or reuse Ollama client
+                        if not hasattr(self, '_ollama_client') or self._ollama_client is None:
+                            self._ollama_client = OllamaClient(base_url=base_url)
+                    except Exception as e:
+                        logger.error(f"Error initializing Ollama client: {str(e)}")
+                        return {"error": f"Error initializing Ollama client: {str(e)}"}
                     
                     # For smaller models, we need to be more careful with context length
                     # Determine if we should use a smaller model for better performance
@@ -1243,12 +1251,21 @@ def create_smolavision_agent(config: Dict[str, Any]):
         # For Ollama, we'll use a local model through the API
         # The actual Ollama calls are handled in the tools
         # Create a minimal model implementation that doesn't require any API
-        from smolagents.models.base import BaseModel
-        class FallbackModel(BaseModel):
-            def generate(self, prompt, **kwargs):
-                return "This is a fallback model response. The actual processing is done by Ollama tools."
-        model = FallbackModel()
-        logger.info("Using fallback model for agent (actual processing is done by Ollama tools)")
+        try:
+            from smolagents.models.base import BaseModel
+            class FallbackModel(BaseModel):
+                def generate(self, prompt, **kwargs):
+                    return "This is a fallback model response. The actual processing is done by Ollama tools."
+            model = FallbackModel()
+            logger.info("Using fallback model for agent (actual processing is done by Ollama tools)")
+        except Exception as e:
+            logger.error(f"Error creating fallback model: {str(e)}")
+            # Create an even simpler fallback if the above fails
+            class SimpleModel:
+                def generate(self, prompt, **kwargs):
+                    return "Fallback response. Processing done by Ollama tools."
+            model = SimpleModel()
+            logger.info("Using simple fallback model for agent")
     elif model_type == "anthropic":
         model = LiteLLMModel(model_id="anthropic/claude-3-opus-20240229", api_key=api_key)
     elif model_type == "openai":
