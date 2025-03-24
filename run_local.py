@@ -21,14 +21,15 @@ def main():
     model_config.ollama.vision_model = model_config.ollama.small_models["vision"]  # Use bakllava:7b
     
     # Configure video processing
-    config["video"]["language"] = "Hebrew"
-    config["video"]["frame_interval"] = 10
-    config["video"]["detect_scenes"] = True
-    config["video"]["scene_threshold"] = 30.0
-    config["video"]["enable_ocr"] = True
-    config["video"]["start_time"] = 0.0
-    config["video"]["end_time"] = 120.0  # Process first 2 minutes
-    config["video"]["mission"] = "general"
+    video_config = config["video"]
+    video_config.language = "Hebrew"
+    video_config.frame_interval = 10
+    video_config.detect_scenes = True
+    video_config.scene_threshold = 30.0
+    video_config.enable_ocr = True
+    video_config.start_time = 0.0
+    video_config.end_time = 120.0  # Process first 2 minutes
+    video_config.mission = "general"
     
     # Get video path from command line or use default
     # Use a safer default path without non-ASCII characters
