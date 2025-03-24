@@ -17,9 +17,51 @@ logging.basicConfig(
 )
 logger = logging.getLogger("SmolaVision")
 
+def check_ollama_installed():
+    """Check if Ollama is installed and running"""
+    try:
+        import subprocess
+        
+        # Check if Ollama is installed
+        try:
+            result = subprocess.run(["which", "ollama"], capture_output=True, text=True)
+            if result.returncode != 0:
+                logger.error("Ollama is not installed. Please install it from https://ollama.com")
+                return False
+        except Exception:
+            # On Windows, try where instead of which
+            try:
+                result = subprocess.run(["where", "ollama"], capture_output=True, text=True)
+                if result.returncode != 0:
+                    logger.error("Ollama is not installed. Please install it from https://ollama.com")
+                    return False
+            except Exception:
+                logger.error("Ollama is not installed. Please install it from https://ollama.com")
+                return False
+        
+        # Check if Ollama is running
+        try:
+            import requests
+            response = requests.get("http://localhost:11434/api/tags", timeout=2)
+            if response.status_code != 200:
+                logger.error("Ollama is installed but not running. Please start it with 'ollama serve'")
+                return False
+        except Exception:
+            logger.error("Ollama is installed but not running. Please start it with 'ollama serve'")
+            return False
+            
+        return True
+    except ImportError:
+        logger.error("Required package 'requests' is not installed. Please install it with 'pip install requests'")
+        return False
+
 def check_ollama_models(ollama_config):
     """Check if required Ollama models are available, pull if not"""
     try:
+        # First check if Ollama is installed and running
+        if not check_ollama_installed():
+            return False
+            
         from ollama_client import OllamaClient
         
         client = OllamaClient(base_url=ollama_config.base_url)
@@ -27,12 +69,12 @@ def check_ollama_models(ollama_config):
         # Check connection to Ollama
         if not client._check_connection():
             logger.error(f"Cannot connect to Ollama at {ollama_config.base_url}")
-            logger.error("Please make sure Ollama is running")
+            logger.error("Please make sure Ollama is running with 'ollama serve'")
             return False
             
         # Get available models
         available_models = client.list_models()
-        logger.info(f"Available Ollama models: {', '.join(available_models)}")
+        logger.info(f"Available Ollama models: {', '.join(available_models) if available_models else 'None'}")
         
         # Check if required models are available
         required_models = [
@@ -44,12 +86,27 @@ def check_ollama_models(ollama_config):
         
         if missing_models:
             logger.warning(f"Missing required models: {', '.join(missing_models)}")
-            logger.warning("Please install them with:")
-            for model in missing_models:
-                logger.warning(f"  ollama pull {model}")
-            return False
+            logger.warning("Do you want to pull the missing models now? (y/n)")
+            choice = input().lower()
+            
+            if choice == 'y' or choice == 'yes':
+                for model in missing_models:
+                    logger.info(f"Pulling model: {model}...")
+                    if client.pull_model(model):
+                        logger.info(f"Successfully pulled model: {model}")
+                    else:
+                        logger.error(f"Failed to pull model: {model}")
+                        return False
+            else:
+                logger.warning("Please install the missing models manually with:")
+                for model in missing_models:
+                    logger.warning(f"  ollama pull {model}")
+                return False
             
         return True
+    except ImportError:
+        logger.error("Required package 'requests' is not installed. Please install it with 'pip install requests'")
+        return False
     except Exception as e:
         logger.error(f"Error checking Ollama models: {str(e)}")
         return False
@@ -66,15 +123,35 @@ def main():
     parser.add_argument("--start-time", type=float, default=0, help="Start time in seconds")
     parser.add_argument("--text-model", default="phi3:mini", 
                         help="Ollama model for text generation (smaller = faster)")
-    parser.add_argument("--vision-model", default="bakllava:7b", 
+    parser.add_argument("--vision-model", default="llava", 
                         help="Ollama model for vision tasks")
     parser.add_argument("--mission", default="general", choices=["general", "workflow"],
                         help="Analysis mission type")
     parser.add_argument("--enable-ocr", action="store_true", help="Enable OCR text extraction")
     parser.add_argument("--generate-flowchart", action="store_true", help="Generate workflow flowchart")
+    parser.add_argument("--check-dependencies", action="store_true", 
+                        help="Check for required dependencies and exit")
+    parser.add_argument("--list-models", action="store_true",
+                        help="List available Ollama models and exit")
     
     args = parser.parse_args()
     
+    # Check for required Python packages
+    try:
+        import cv2
+        import numpy as np
+        import requests
+    except ImportError as e:
+        logger.error(f"Missing required package: {str(e)}")
+        logger.error("Please install required packages with: pip install opencv-python numpy requests")
+        return
+    
+    # If just checking dependencies, exit after checks
+    if args.check_dependencies:
+        if check_ollama_installed():
+            logger.info("All dependencies are installed correctly.")
+        return
+        
     # Create configuration with Ollama enabled
     config = create_default_config()
     
@@ -85,6 +162,23 @@ def main():
     model_config.ollama.base_url = "http://localhost:11434"
     model_config.ollama.model_name = args.text_model
     model_config.ollama.vision_model = args.vision_model
+    
+    # If just listing models, do that and exit
+    if args.list_models:
+        try:
+            from ollama_client import OllamaClient
+            client = OllamaClient()
+            models = client.list_models()
+            if models:
+                print("Available Ollama models:")
+                for model in models:
+                    print(f"  - {model}")
+            else:
+                print("No models found or couldn't connect to Ollama.")
+                print("Make sure Ollama is running with 'ollama serve'")
+        except Exception as e:
+            logger.error(f"Error listing models: {str(e)}")
+        return
     
     # Configure video processing
     video_config = config["video"]
@@ -101,6 +195,7 @@ def main():
     # Check if Ollama is running and has required models
     if not check_ollama_models(model_config.ollama):
         logger.error("Ollama setup incomplete. Please install required models and try again.")
+        logger.error("You can run this script with --check-dependencies to verify your setup.")
         return
     
     # Get video path from command line or prompt user

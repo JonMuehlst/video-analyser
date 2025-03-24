@@ -196,32 +196,64 @@ VIDEO ANALYSIS (MIDDLE PART):
 
                 # Check if using Ollama
                 if model_name == "ollama" or (ollama_config and ollama_config.get("enabled")):
-                    # Use Ollama for local inference
-                    from ollama_client import OllamaClient
+                    try:
+                        # Use Ollama for local inference
+                        from ollama_client import OllamaClient
                     
-                    base_url = ollama_config.get("base_url", "http://localhost:11434")
-                    model = ollama_config.get("model_name", "llama3")
+                        base_url = ollama_config.get("base_url", "http://localhost:11434")
+                        model = ollama_config.get("model_name", "llama3")
                     
-                    # Create or reuse Ollama client
-                    if not hasattr(self, '_ollama_client') or self._ollama_client is None:
-                        self._ollama_client = OllamaClient(base_url=base_url)
+                        # Create or reuse Ollama client
+                        if not hasattr(self, '_ollama_client') or self._ollama_client is None:
+                            self._ollama_client = OllamaClient(base_url=base_url)
                     
-                    # For smaller models, we need to be more careful with context length
-                    # Determine if we should use a smaller model for better performance
-                    if len(prompt) > 8000 and "small_models" in ollama_config:
-                        # Use the smallest model for very large prompts
-                        logger.info(f"Using smaller model for large prompt ({len(prompt)} chars)")
-                        model = ollama_config.get("small_models", {}).get("fast", model)
+                        # Check if we can connect to Ollama
+                        if not self._ollama_client._check_connection():
+                            return {"error": "Cannot connect to Ollama. Please make sure Ollama is running with 'ollama serve'"}
                     
-                    # Call Ollama model with appropriate token limit
-                    # Smaller models need smaller token limits
-                    max_tokens = 2048 if "phi" in model or "gemma:2b" in model or "tiny" in model else 4096
+                        # Check if the model is available
+                        available_models = self._ollama_client.list_models()
+                        if model not in available_models:
+                            return {"error": f"Model '{model}' not available in Ollama. Please pull it with 'ollama pull {model}'"}
                     
-                    chunk_summary = self._ollama_client.generate(
-                        model=model,
-                        prompt=prompt,
-                        max_tokens=max_tokens
-                    )
+                        # For smaller models, we need to be more careful with context length
+                        # Determine if we should use a smaller model for better performance
+                        if len(prompt) > 8000:
+                            # Check if we have smaller models defined
+                            if "small_models" in ollama_config and ollama_config.get("small_models", {}).get("fast"):
+                                small_model = ollama_config.get("small_models", {}).get("fast")
+                                # Check if the small model is available
+                                if small_model in available_models:
+                                    logger.info(f"Using smaller model {small_model} for large prompt ({len(prompt)} chars)")
+                                    model = small_model
+                                else:
+                                    logger.warning(f"Small model {small_model} not available, using {model} instead")
+                            else:
+                                # If no small models defined, try to use a smaller context window
+                                logger.warning(f"Large prompt ({len(prompt)} chars) may exceed model context window")
+                    
+                        # Call Ollama model with appropriate token limit
+                        # Adjust token limits based on model
+                        max_tokens = 4096  # Default
+                        if "phi" in model or "gemma:2b" in model or "tiny" in model or "1b" in model:
+                            max_tokens = 2048  # Smaller models
+                        elif "3b" in model or "7b" in model:
+                            max_tokens = 4096  # Medium models
+                        elif "13b" in model or "34b" in model or "70b" in model:
+                            max_tokens = 8192  # Larger models
+                    
+                        logger.info(f"Generating summary with model {model}, max tokens: {max_tokens}")
+                        chunk_summary = self._ollama_client.generate(
+                            model=model,
+                            prompt=prompt,
+                            max_tokens=max_tokens
+                        )
+                    except ImportError:
+                        return {"error": "Required package 'requests' is not installed. Please install it with 'pip install requests'"}
+                    except Exception as e:
+                        error_msg = f"Error using Ollama for summarization: {str(e)}"
+                        logger.error(error_msg)
+                        return {"error": error_msg}
                 
                 # Call the LLM API based on model name
                 elif model_name.startswith("claude"):

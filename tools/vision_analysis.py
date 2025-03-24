@@ -91,66 +91,99 @@ class VisionAnalysisTool(Tool):
 
             # Check if using Ollama
             if model_name == "ollama" or (ollama_config and ollama_config.get("enabled")):
-                # Use Ollama for local inference
-                from ollama_client import OllamaClient
-                
-                base_url = ollama_config.get("base_url", "http://localhost:11434")
-                vision_model = ollama_config.get("vision_model", "llava")
-                
-                # Create or reuse Ollama client
-                if not hasattr(self, '_ollama_client') or self._ollama_client is None:
-                    self._ollama_client = OllamaClient(base_url=base_url)
-                
-                # For smaller GPUs, we need to be careful with batch size
-                # Process images in smaller sub-batches if needed
-                max_images_per_request = 3  # Limit for 12GB VRAM
-                
-                if len(batch) > max_images_per_request:
-                    logger.info(f"Batch size ({len(batch)}) exceeds max images per request ({max_images_per_request}). Processing in sub-batches.")
+                try:
+                    # Use Ollama for local inference
+                    from ollama_client import OllamaClient
                     
-                    # Process in sub-batches and combine results
-                    sub_batch_results = []
-                    for i in range(0, len(batch), max_images_per_request):
-                        sub_batch = batch[i:i + max_images_per_request]
+                    base_url = ollama_config.get("base_url", "http://localhost:11434")
+                    vision_model = ollama_config.get("vision_model", "llava")
+                    
+                    # Create or reuse Ollama client
+                    if not hasattr(self, '_ollama_client') or self._ollama_client is None:
+                        self._ollama_client = OllamaClient(base_url=base_url)
+                    
+                    # Check if we can connect to Ollama
+                    if not self._ollama_client._check_connection():
+                        return "Error: Cannot connect to Ollama. Please make sure Ollama is running with 'ollama serve'"
+                    
+                    # Check if the vision model is available
+                    available_models = self._ollama_client.list_models()
+                    if vision_model not in available_models:
+                        return f"Error: Vision model '{vision_model}' not available in Ollama. Please pull it with 'ollama pull {vision_model}'"
+                    
+                    # Determine optimal batch size based on model
+                    # These are conservative defaults that should work on most GPUs
+                    max_images_per_request = 3  # Default for 12GB VRAM
+                    
+                    # Adjust based on model size
+                    if "tiny" in vision_model or "1b" in vision_model:
+                        max_images_per_request = 6  # Smaller models can handle more images
+                    elif "7b" in vision_model:
+                        max_images_per_request = 3  # Medium models
+                    else:
+                        max_images_per_request = 2  # Larger models need smaller batches
+                    
+                    # Process in batches
+                    if len(batch) > max_images_per_request:
+                        logger.info(f"Batch size ({len(batch)}) exceeds max images per request ({max_images_per_request}). Processing in sub-batches.")
                         
-                        # Extract base64 images for this sub-batch
+                        # Process in sub-batches and combine results
+                        sub_batch_results = []
+                        for i in range(0, len(batch), max_images_per_request):
+                            sub_batch = batch[i:i + max_images_per_request]
+                            
+                            # Extract base64 images for this sub-batch
+                            images = []
+                            for frame in sub_batch:
+                                base64_image = frame.get('base64_image', '')
+                                if base64_image and isinstance(base64_image, str):
+                                    images.append(base64_image)
+                            
+                            # Create a sub-prompt
+                            sub_prompt = f"Analyzing frames {i+1} to {i+len(sub_batch)} of {len(batch)}:\n{prompt}"
+                            
+                            # Call Ollama vision model for this sub-batch
+                            try:
+                                sub_result = self._ollama_client.generate_vision(
+                                    model=vision_model,
+                                    prompt=sub_prompt,
+                                    images=images,
+                                    max_tokens=2048  # Smaller token limit for sub-batches
+                                )
+                                sub_batch_results.append(sub_result)
+                                
+                                # Log progress
+                                logger.info(f"Processed sub-batch {i//max_images_per_request + 1}/{(len(batch) + max_images_per_request - 1)//max_images_per_request}")
+                                
+                            except Exception as e:
+                                error_msg = f"Error processing sub-batch: {str(e)}"
+                                logger.error(error_msg)
+                                sub_batch_results.append(f"Error in batch {i//max_images_per_request + 1}: {error_msg}")
+                        
+                        # Combine results
+                        analysis = "\n\n".join(sub_batch_results)
+                    else:
+                        # Process the whole batch at once
+                        # Extract base64 images for Ollama
                         images = []
-                        for frame in sub_batch:
+                        for frame in batch:
                             base64_image = frame.get('base64_image', '')
                             if base64_image and isinstance(base64_image, str):
                                 images.append(base64_image)
                         
-                        # Create a sub-prompt
-                        sub_prompt = f"Analyzing frames {i+1} to {i+len(sub_batch)} of {len(batch)}:\n{prompt}"
-                        
-                        # Call Ollama vision model for this sub-batch
-                        sub_result = self._ollama_client.generate_vision(
+                        # Call Ollama vision model
+                        analysis = self._ollama_client.generate_vision(
                             model=vision_model,
-                            prompt=sub_prompt,
+                            prompt=prompt,
                             images=images,
-                            max_tokens=2048  # Smaller token limit for sub-batches
+                            max_tokens=4096
                         )
-                        
-                        sub_batch_results.append(sub_result)
-                    
-                    # Combine results
-                    analysis = "\n\n".join(sub_batch_results)
-                else:
-                    # Process the whole batch at once
-                    # Extract base64 images for Ollama
-                    images = []
-                    for frame in batch:
-                        base64_image = frame.get('base64_image', '')
-                        if base64_image and isinstance(base64_image, str):
-                            images.append(base64_image)
-                    
-                    # Call Ollama vision model
-                    analysis = self._ollama_client.generate_vision(
-                        model=vision_model,
-                        prompt=prompt,
-                        images=images,
-                        max_tokens=4096
-                    )
+                except ImportError:
+                    return "Error: Required package 'requests' is not installed. Please install it with 'pip install requests'"
+                except Exception as e:
+                    error_msg = f"Error using Ollama for vision analysis: {str(e)}"
+                    logger.error(error_msg)
+                    return error_msg
                 
             # Prepare images based on the model
             elif model_name.startswith("claude"):

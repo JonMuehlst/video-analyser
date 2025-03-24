@@ -1,8 +1,9 @@
 """
-Ollama client for local model inference
+Client for interacting with Ollama API for local model inference
 """
-import base64
+import os
 import json
+import base64
 import logging
 import time
 import requests
@@ -40,7 +41,7 @@ class OllamaClient:
             response.raise_for_status()
             result = response.json()
             models = [model["name"] for model in result.get("models", [])]
-            logger.info(f"Available Ollama models: {', '.join(models)}")
+            logger.info(f"Available Ollama models: {', '.join(models) if models else 'None'}")
             return models
         except Exception as e:
             logger.error(f"Error listing Ollama models: {str(e)}")
@@ -51,7 +52,7 @@ class OllamaClient:
         """Make a request to Ollama API with retries"""
         for attempt in range(retries):
             try:
-                response = requests.post(url, json=payload, timeout=120)  # Longer timeout for vision models
+                response = requests.post(url, json=payload, timeout=300)  # Longer timeout for vision models
                 response.raise_for_status()
                 return True, response.json()
             except requests.exceptions.Timeout:
@@ -67,6 +68,59 @@ class OllamaClient:
                 return False, f"Error: {str(e)}"
         
         return False, "Failed after multiple retries"
+    
+    def get_model_info(self, model_name: str) -> Dict[str, Any]:
+        """Get information about a specific model"""
+        try:
+            response = requests.get(f"{self.base_url}/api/show?name={model_name}", timeout=10)
+            if response.status_code == 200:
+                return response.json()
+            else:
+                logger.error(f"Error getting model info: {response.status_code} - {response.text}")
+                return {}
+        except Exception as e:
+            logger.error(f"Error getting model info: {str(e)}")
+            return {}
+    
+    def pull_model(self, model_name: str) -> bool:
+        """Pull a model from Ollama library"""
+        try:
+            logger.info(f"Pulling model: {model_name}...")
+            
+            # Use the Ollama API to pull the model
+            url = f"{self.base_url}/api/pull"
+            payload = {"name": model_name}
+            
+            # This is a long operation, so we'll stream the response
+            response = requests.post(url, json=payload, stream=True, timeout=3600)
+            
+            if response.status_code != 200:
+                logger.error(f"Error pulling model: {response.status_code} - {response.text}")
+                return False
+            
+            # Process the streaming response to show progress
+            for line in response.iter_lines():
+                if line:
+                    try:
+                        data = json.loads(line)
+                        if "status" in data:
+                            if data.get("completed", False):
+                                logger.info(f"Model pull completed: {model_name}")
+                                return True
+                            else:
+                                # Show progress if available
+                                progress = data.get("progress", 0)
+                                total = data.get("total", 0)
+                                if total > 0:
+                                    percent = (progress / total) * 100
+                                    logger.info(f"Pulling {model_name}: {percent:.1f}% ({progress}/{total})")
+                    except json.JSONDecodeError:
+                        pass
+            
+            return True
+        except Exception as e:
+            logger.error(f"Error pulling model: {str(e)}")
+            return False
         
     def generate(self, 
                  model: str, 
@@ -93,7 +147,7 @@ class OllamaClient:
         }
         
         # Add GPU-specific options to prevent OOM errors
-        if "3060" in model or any(small_model in model for small_model in ["phi", "gemma:2b", "tiny", "1b", "7b"]):
+        if any(small_model in model.lower() for small_model in ["phi", "gemma:2b", "tiny", "1b", "7b"]):
             payload["options"].update({
                 "gpu_layers": -1,  # Use all layers that fit on GPU
                 "f16": True,       # Use half-precision for better memory usage
@@ -102,7 +156,7 @@ class OllamaClient:
         if system_prompt:
             payload["system"] = system_prompt
             
-        logger.debug(f"Sending request to Ollama: {model} (max tokens: {adjusted_max_tokens})")
+        logger.info(f"Generating text with model: {model} (max tokens: {adjusted_max_tokens})")
         success, result = self._make_request(url, payload)
         
         if success:
@@ -137,9 +191,13 @@ class OllamaClient:
         # Format images for Ollama
         formatted_images = []
         for img_base64 in images:
+            # Remove data:image/jpeg;base64, prefix if present
+            if "base64," in img_base64:
+                img_base64 = img_base64.split("base64,")[1]
+                
             formatted_images.append({
                 "data": img_base64,
-                "mime_type": "image/jpeg"
+                "type": "image/jpeg"
             })
         
         payload = {
@@ -154,7 +212,7 @@ class OllamaClient:
             }
         }
         
-        logger.debug(f"Sending vision request to Ollama: {model} with {len(images)} images (max tokens: {adjusted_max_tokens})")
+        logger.info(f"Generating vision response with model: {model} with {len(images)} images")
         success, result = self._make_request(url, payload)
         
         if success:
