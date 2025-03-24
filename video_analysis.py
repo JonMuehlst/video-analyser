@@ -572,79 +572,93 @@ class VisionAnalysisTool(Tool):
                 
             # Prepare images based on the model
             elif model_name.startswith("claude"):
-                # Anthropic Claude format
-                import anthropic
+                try:
+                    # Anthropic Claude format
+                    import anthropic
 
-                # Create client (or reuse cached one)
-                if not hasattr(self, '_anthropic_client') or self._anthropic_client is None:
-                    self._anthropic_client = anthropic.Anthropic(api_key=api_key)
+                    # Create client (or reuse cached one)
+                    if not hasattr(self, '_anthropic_client') or self._anthropic_client is None:
+                        self._anthropic_client = anthropic.Anthropic(api_key=api_key)
 
-                # Format images for Claude
-                images = []
-                for frame in batch:
-                    base64_image = frame.get('base64_image', '')
-                    if base64_image and isinstance(base64_image, str):
-                        images.append({
-                            "type": "image",
-                            "source": {
-                                "type": "base64",
-                                "media_type": "image/jpeg",
-                                "data": base64_image
+                    # Format images for Claude
+                    images = []
+                    for frame in batch:
+                        base64_image = frame.get('base64_image', '')
+                        if base64_image and isinstance(base64_image, str):
+                            images.append({
+                                "type": "image",
+                                "source": {
+                                    "type": "base64",
+                                    "media_type": "image/jpeg",
+                                    "data": base64_image
+                                }
+                            })
+
+                    # Make API call
+                    model_id = "claude-3-opus-20240229" if model_name == "claude" else model_name
+                    response = self._anthropic_client.messages.create(
+                        model=model_id,
+                        max_tokens=4096,
+                        messages=[
+                            {
+                                "role": "user",
+                                "content": [
+                                    {"type": "text", "text": prompt},
+                                    *images
+                                ]
                             }
-                        })
-
-                # Make API call
-                model_id = "claude-3-opus-20240229" if model_name == "claude" else model_name
-                response = self._anthropic_client.messages.create(
-                    model=model_id,
-                    max_tokens=4096,
-                    messages=[
-                        {
-                            "role": "user",
-                            "content": [
-                                {"type": "text", "text": prompt},
-                                *images
-                            ]
-                        }
-                    ]
-                )
-                analysis = response.content[0].text
+                        ]
+                    )
+                    analysis = response.content[0].text
+                except (ImportError, ModuleNotFoundError):
+                    logger.error("Anthropic API not available. Please install with: pip install anthropic")
+                    return "Error: Anthropic API not available. Please install with: pip install anthropic"
+                except Exception as e:
+                    logger.error(f"Error using Anthropic API: {str(e)}")
+                    return f"Error using Anthropic API: {str(e)}"
 
             elif model_name == "gpt4o" or model_name == "gpt-4o":
-                # OpenAI GPT-4 Vision format
-                import openai
+                try:
+                    # OpenAI GPT-4 Vision format
+                    import openai
 
-                # Create client (or reuse cached one)
-                if not hasattr(self, '_openai_client') or self._openai_client is None:
-                    self._openai_client = openai.OpenAI(api_key=api_key)
+                    # Create client (or reuse cached one)
+                    if not hasattr(self, '_openai_client') or self._openai_client is None:
+                        self._openai_client = openai.OpenAI(api_key=api_key)
 
-                # Format images for OpenAI
-                images = []
-                for frame in batch:
-                    base64_image = frame.get('base64_image', '')
-                    if base64_image and isinstance(base64_image, str):
-                        images.append({
-                            "type": "image_url",
-                            "image_url": {
-                                "url": f"data:image/jpeg;base64,{base64_image}"
+                    # Format images for OpenAI
+                    images = []
+                    for frame in batch:
+                        base64_image = frame.get('base64_image', '')
+                        if base64_image and isinstance(base64_image, str):
+                            images.append({
+                                "type": "image_url",
+                                "image_url": {
+                                    "url": f"data:image/jpeg;base64,{base64_image}"
+                                }
+                            })
+
+                    # Make API call
+                    response = self._openai_client.chat.completions.create(
+                        model="gpt-4o",
+                        max_tokens=4096,
+                        messages=[
+                            {
+                                "role": "user",
+                                "content": [
+                                    {"type": "text", "text": prompt},
+                                    *images
+                                ]
                             }
-                        })
-
-                # Make API call
-                response = self._openai_client.chat.completions.create(
-                    model="gpt-4o",
-                    max_tokens=4096,
-                    messages=[
-                        {
-                            "role": "user",
-                            "content": [
-                                {"type": "text", "text": prompt},
-                                *images
-                            ]
-                        }
-                    ]
-                )
-                analysis = response.choices[0].message.content
+                        ]
+                    )
+                    analysis = response.choices[0].message.content
+                except (ImportError, ModuleNotFoundError):
+                    logger.error("OpenAI API not available. Please install with: pip install openai")
+                    return "Error: OpenAI API not available. Please install with: pip install openai"
+                except Exception as e:
+                    logger.error(f"Error using OpenAI API: {str(e)}")
+                    return f"Error using OpenAI API: {str(e)}"
 
             else:
                 return f"Error: Unsupported model name: {model_name}. Use 'claude', 'gpt4o', or 'ollama'."
@@ -1005,42 +1019,56 @@ VIDEO ANALYSIS (MIDDLE PART):
                 
                 # Call the LLM API based on model name
                 elif model_name.startswith("claude"):
-                    import anthropic
+                    try:
+                        import anthropic
 
-                    # Create or reuse client
-                    if not hasattr(self, '_anthropic_client') or self._anthropic_client is None:
-                        self._anthropic_client = anthropic.Anthropic(api_key=api_key)
+                        # Create or reuse client
+                        if not hasattr(self, '_anthropic_client') or self._anthropic_client is None:
+                            self._anthropic_client = anthropic.Anthropic(api_key=api_key)
 
-                    response = self._anthropic_client.messages.create(
-                        model=model_name,
-                        max_tokens=4096,
-                        messages=[
-                            {
-                                "role": "user",
-                                "content": prompt
-                            }
-                        ]
-                    )
-                    chunk_summary = response.content[0].text
+                        response = self._anthropic_client.messages.create(
+                            model=model_name,
+                            max_tokens=4096,
+                            messages=[
+                                {
+                                    "role": "user",
+                                    "content": prompt
+                                }
+                            ]
+                        )
+                        chunk_summary = response.content[0].text
+                    except (ImportError, ModuleNotFoundError):
+                        logger.error("Anthropic API not available. Please install with: pip install anthropic")
+                        return {"error": "Anthropic API not available. Please install with: pip install anthropic"}
+                    except Exception as e:
+                        logger.error(f"Error using Anthropic API: {str(e)}")
+                        return {"error": f"Error using Anthropic API: {str(e)}"}
 
                 elif model_name.startswith("gpt"):
-                    import openai
+                    try:
+                        import openai
 
-                    # Create or reuse client
-                    if not hasattr(self, '_openai_client') or self._openai_client is None:
-                        self._openai_client = openai.OpenAI(api_key=api_key)
+                        # Create or reuse client
+                        if not hasattr(self, '_openai_client') or self._openai_client is None:
+                            self._openai_client = openai.OpenAI(api_key=api_key)
 
-                    response = self._openai_client.chat.completions.create(
-                        model=model_name,
-                        max_tokens=4096,
-                        messages=[
-                            {
-                                "role": "user",
-                                "content": prompt
-                            }
-                        ]
-                    )
-                    chunk_summary = response.choices[0].message.content
+                        response = self._openai_client.chat.completions.create(
+                            model=model_name,
+                            max_tokens=4096,
+                            messages=[
+                                {
+                                    "role": "user",
+                                    "content": prompt
+                                }
+                            ]
+                        )
+                        chunk_summary = response.choices[0].message.content
+                    except (ImportError, ModuleNotFoundError):
+                        logger.error("OpenAI API not available. Please install with: pip install openai")
+                        return {"error": "OpenAI API not available. Please install with: pip install openai"}
+                    except Exception as e:
+                        logger.error(f"Error using OpenAI API: {str(e)}")
+                        return {"error": f"Error using OpenAI API: {str(e)}"}
 
                 else:
                     return {"error": f"Unsupported model: {model_name}"}
@@ -1214,8 +1242,20 @@ def create_smolavision_agent(config: Dict[str, Any]):
     if model_type == "ollama":
         # For Ollama, we'll use a local model through the API
         # The actual Ollama calls are handled in the tools
-        model = LiteLLMModel(model_id="anthropic/claude-3-opus-20240229", api_key=api_key)
-        logger.info("Using Ollama for local model inference (agent will use a placeholder model)")
+        # Use HfApiModel as a fallback that doesn't require API keys
+        try:
+            model = HfApiModel(model_id="meta-llama/Llama-3.3-70B-Instruct", token=None)
+            logger.info("Using Ollama for local model inference (agent will use a placeholder model)")
+        except Exception as e:
+            # If HfApiModel fails, use a simple fallback that doesn't require any API
+            logger.warning(f"Failed to create HfApiModel: {str(e)}")
+            # Create a minimal model implementation that doesn't require any API
+            from smolagents.models.base import BaseModel
+            class FallbackModel(BaseModel):
+                def generate(self, prompt, **kwargs):
+                    return "This is a fallback model response. The actual processing is done by Ollama tools."
+            model = FallbackModel()
+            logger.info("Using fallback model for agent (actual processing is done by Ollama tools)")
     elif model_type == "anthropic":
         model = LiteLLMModel(model_id="anthropic/claude-3-opus-20240229", api_key=api_key)
     elif model_type == "openai":

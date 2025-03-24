@@ -75,9 +75,15 @@ def main():
     
     # Configure for Ollama with smaller models suitable for 12GB VRAM (3060)
     model_config = config["model"]
-    model_config.model_type = "ollama"
+    model_config.model_type = "ollama"  # This tells the system to use Ollama
     model_config.ollama.enabled = True
     model_config.ollama.base_url = "http://localhost:11434"
+    model_config.api_key = None  # Ensure we don't try to use any API keys
+    
+    # Make sure we don't try to use any cloud APIs
+    os.environ.pop("ANTHROPIC_API_KEY", None)
+    os.environ.pop("OPENAI_API_KEY", None)
+    os.environ.pop("HF_TOKEN", None)
     
     # Check available models and set appropriate defaults
     try:
