@@ -223,9 +223,11 @@ Analyze the video at path "{video_path}" with the following steps:
    - Use scene threshold of {scene_threshold}
    - Start at {start_time} seconds
    - {'End at ' + str(end_time) + ' seconds' if end_time > 0 else 'Process until the end of the video'}
+   - Save all outputs to the directory: "{output_dir}"
 
 2. {'Apply OCR to extract text from frames using extract_text_ocr tool' if enable_ocr else '# OCR disabled'}
    {'- Specify language as "' + language + '"' if enable_ocr else ''}
+   {'- Save all outputs to the directory: "' + output_dir + '"' if enable_ocr else ''}
 
 3. Create batches of frames using create_batches tool
    - Use maximum batch size of {max_batch_size_mb} MB
@@ -238,15 +240,18 @@ Analyze the video at path "{video_path}" with the following steps:
    - Use "{vision_model_name}" as the vision model
    {'- Use mission type "' + mission + '"' if mission != "general" else ''}
    {'- Make use of OCR text in frames when available' if enable_ocr else ''}
+   - Save all outputs to the directory: "{output_dir}"
 
 5. Generate a final coherent summary using generate_summary tool
    - Combine all the analyses
    - Use "{summary_model_name}" as the summary model
    {'- Use mission type "' + mission + '"' if mission != "general" else ''}
    {'- Generate a workflow flowchart' if generate_flowchart else ''}
+   - Save all outputs to the directory: "{output_dir}"
 
 The goal is to create a comprehensive analysis of the video, capturing all visual elements,
 text content (with translations), and {'workflow logic' if mission == 'workflow' else 'narrative flow'}.
+All output files should be saved to: "{output_dir}"
 """
 
     logger.info(f"Starting analysis of video: {video_path}")
@@ -264,13 +269,25 @@ text content (with translations), and {'workflow logic' if mission == 'workflow'
             "end_time": end_time,
             "mission": mission,
             "generate_flowchart": generate_flowchart,
-            "ollama_config": ollama_config.to_dict() if ollama_config.enabled else None
+            "ollama_config": ollama_config.to_dict() if ollama_config.enabled else None,
+            "output_dir": output_dir  # Pass output directory to tools
         })
 
         # Log completion
         elapsed_time = time.time() - start_time_execution
         logger.info(f"Analysis completed in {elapsed_time:.1f} seconds")
         logger.info(f"Results saved to directory: {output_dir}")
+
+        # Update result paths to include output directory
+        if isinstance(result, dict):
+            # Ensure all file paths in the result use the output directory
+            for key in result:
+                if isinstance(result[key], str) and (
+                    key.endswith('_path') or key in ['coherent_summary', 'full_analysis', 'flowchart']
+                ):
+                    # If the path doesn't already include the output directory, update it
+                    if not result[key].startswith(output_dir):
+                        result[key] = os.path.join(output_dir, os.path.basename(result[key]))
 
         return result
 
