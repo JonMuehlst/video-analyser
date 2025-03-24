@@ -13,7 +13,7 @@ openai>=1.0.0                  # OpenAI API client for GPT models
 # Utilities
 tqdm>=4.62.0                   # Progress bars for batch processing
 requests>=2.25.0               # HTTP requests
-asyncio>=3.4.3                 # Asynchronous I/O
+# asyncio is part of the Python standard library
 
 # Logging and error handling
 loguru>=0.6.0                  # Enhanced logging capabilities# Core dependencies
