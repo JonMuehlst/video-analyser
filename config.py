@@ -86,6 +86,14 @@ def load_config_from_env() -> Dict[str, Any]:
     config["frame_interval"] = int(os.environ.get("FRAME_INTERVAL", "10"))
     config["detect_scenes"] = os.environ.get("DETECT_SCENES", "").lower() == "true"
     config["scene_threshold"] = float(os.environ.get("SCENE_THRESHOLD", "30.0"))
+    config["enable_ocr"] = os.environ.get("ENABLE_OCR", "").lower() == "true"
+    config["start_time"] = float(os.environ.get("START_TIME", "0.0"))
+    config["end_time"] = float(os.environ.get("END_TIME", "0.0"))
+    config["mission"] = os.environ.get("MISSION", "general")
+    config["generate_flowchart"] = os.environ.get("GENERATE_FLOWCHART", "").lower() == "true"
+    config["max_batch_size_mb"] = float(os.environ.get("MAX_BATCH_SIZE_MB", "10.0"))
+    config["max_images_per_batch"] = int(os.environ.get("MAX_IMAGES_PER_BATCH", "15"))
+    config["batch_overlap_frames"] = int(os.environ.get("BATCH_OVERLAP_FRAMES", "2"))
     
     return config
 
@@ -124,5 +132,21 @@ def create_default_config(api_key: Optional[str] = None) -> Dict[str, Any]:
         config["video"].detect_scenes = env_config.get("detect_scenes")
     if env_config.get("scene_threshold"):
         config["video"].scene_threshold = env_config.get("scene_threshold")
+    if "enable_ocr" in env_config:
+        config["video"].enable_ocr = env_config.get("enable_ocr")
+    if env_config.get("start_time") is not None:
+        config["video"].start_time = env_config.get("start_time")
+    if env_config.get("end_time") is not None:
+        config["video"].end_time = env_config.get("end_time")
+    if env_config.get("mission"):
+        config["video"].mission = env_config.get("mission")
+    if "generate_flowchart" in env_config:
+        config["video"].generate_flowchart = env_config.get("generate_flowchart")
+    if env_config.get("max_batch_size_mb"):
+        config["video"].max_batch_size_mb = env_config.get("max_batch_size_mb")
+    if env_config.get("max_images_per_batch"):
+        config["video"].max_images_per_batch = env_config.get("max_images_per_batch")
+    if env_config.get("batch_overlap_frames"):
+        config["video"].batch_overlap_frames = env_config.get("batch_overlap_frames")
     
     return config

@@ -38,6 +38,14 @@ def main():
     logger.info(f"Frame interval: {config['video'].frame_interval}")
     logger.info(f"Detect scenes: {config['video'].detect_scenes}")
     logger.info(f"Scene threshold: {config['video'].scene_threshold}")
+    logger.info(f"Enable OCR: {config['video'].enable_ocr}")
+    logger.info(f"Start time: {config['video'].start_time}")
+    logger.info(f"End time: {config['video'].end_time}")
+    logger.info(f"Mission: {config['video'].mission}")
+    logger.info(f"Generate flowchart: {config['video'].generate_flowchart}")
+    logger.info(f"Max batch size (MB): {config['video'].max_batch_size_mb}")
+    logger.info(f"Max images per batch: {config['video'].max_images_per_batch}")
+    logger.info(f"Batch overlap frames: {config['video'].batch_overlap_frames}")
     
     logger.info("Configuration loading test complete.")
 
