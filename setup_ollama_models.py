@@ -11,12 +11,37 @@ from config import create_default_config
 def run_command(command):
     """Run a shell command and print output"""
     print(f"Running: {command}")
-    result = subprocess.run(command, shell=True, capture_output=True, text=True)
-    if result.stdout:
-        print(result.stdout)
-    if result.stderr:
-        print(f"Error: {result.stderr}")
-    return result.returncode == 0
+    try:
+        # Use explicit encoding and errors handling to avoid UnicodeDecodeError
+        result = subprocess.run(
+            command, 
+            shell=True, 
+            capture_output=True, 
+            text=False  # Get bytes instead of text
+        )
+        
+        # Handle stdout with proper encoding
+        if result.stdout:
+            try:
+                stdout = result.stdout.decode('utf-8')
+            except UnicodeDecodeError:
+                # Fallback encoding with error handling
+                stdout = result.stdout.decode('utf-8', errors='replace')
+            print(stdout)
+            
+        # Handle stderr with proper encoding
+        if result.stderr:
+            try:
+                stderr = result.stderr.decode('utf-8')
+            except UnicodeDecodeError:
+                # Fallback encoding with error handling
+                stderr = result.stderr.decode('utf-8', errors='replace')
+            print(f"Error: {stderr}")
+            
+        return result.returncode == 0
+    except Exception as e:
+        print(f"Command execution error: {str(e)}")
+        return False
 
 def main():
     """Pull Ollama models suitable for a 3060 GPU with 12GB RAM"""
@@ -37,6 +62,16 @@ def main():
     # Get model names from config
     config = create_default_config()
     small_models = config["model"].ollama.small_models
+    
+    # Convert to regular dictionary if it's not already
+    if not isinstance(small_models, dict):
+        small_models = {
+            "text": "phi3:mini",       # Phi-3 Mini (3.8B parameters)
+            "vision": "bakllava:7b",   # Bakllava 7B (LLaVA architecture)
+            "chat": "mistral:7b",      # Mistral 7B
+            "fast": "gemma:2b",        # Gemma 2B
+            "tiny": "tinyllama:1.1b"   # TinyLlama 1.1B
+        }
     
     # Check if Ollama is installed
     if not run_command("ollama --version"):

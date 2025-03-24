@@ -31,7 +31,21 @@ def main():
     config["video"]["mission"] = "general"
     
     # Get video path from command line or use default
-    video_path = sys.argv[1] if len(sys.argv) > 1 else r"C:\Users\jm\Videos\private\תביעה נגזרת מא'-ת' מלא.mp4"
+    # Use a safer default path without non-ASCII characters
+    default_path = r"C:\Users\jm\Videos\private\video.mp4"
+    
+    if len(sys.argv) > 1:
+        video_path = sys.argv[1]
+    else:
+        print(f"No video path provided, using default: {default_path}")
+        video_path = default_path
+        
+    # Check if the file exists
+    if not os.path.exists(video_path):
+        print(f"Warning: Video file not found: {video_path}")
+        print("Please provide a valid video path as an argument:")
+        print("python run_local.py \"path/to/your/video.mp4\"")
+        return
     
     # Run SmolaVision
     result = run_smolavision(video_path=video_path, config=config)

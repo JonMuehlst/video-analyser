@@ -1461,8 +1461,13 @@ def main():
         return
 
     # Verify video file exists
-    if not os.path.exists(args.video):
-        print(f"Error: Video file not found: {args.video}")
+    try:
+        if not os.path.exists(args.video):
+            print(f"Error: Video file not found: {args.video}")
+            return
+    except Exception as e:
+        print(f"Error checking video file: {str(e)}")
+        print("Please ensure the video path is valid and contains only supported characters.")
         return
     
     # Create configuration
