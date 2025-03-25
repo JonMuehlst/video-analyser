@@ -582,20 +582,39 @@ class VisionAnalysisTool(Tool):
                                 max_tokens=4096
                             )
                             
-                            # Handle different response formats
-                            if isinstance(response, str):
-                                analysis = response
-                            elif hasattr(response, 'message') and hasattr(response.message, 'content'):
-                                analysis = response.message.content
-                            elif isinstance(response, dict) and 'message' in response:
-                                if isinstance(response['message'], dict) and 'content' in response['message']:
-                                    analysis = response['message']['content']
-                                elif hasattr(response['message'], 'content'):
-                                    analysis = response['message'].content
+                            # IMPORTANT: Always ensure we return a string, not an object
+                            # Extract content safely from any response format
+                            try:
+                                # Log the response type for debugging
+                                logger.debug(f"Vision response type: {type(response)}")
+                                
+                                # Try object attribute access first (newer Ollama versions)
+                                if hasattr(response, 'message') and hasattr(response.message, 'content'):
+                                    analysis = str(response.message.content)
+                                # Try dictionary access (older Ollama versions)
+                                elif isinstance(response, dict):
+                                    if 'message' in response:
+                                        if isinstance(response['message'], dict) and 'content' in response['message']:
+                                            analysis = str(response['message']['content'])
+                                        elif hasattr(response['message'], 'content'):
+                                            analysis = str(response['message'].content)
+                                        else:
+                                            analysis = str(response['message'])
+                                # Try direct content attribute
+                                elif hasattr(response, 'content'):
+                                    analysis = str(response.content)
+                                # Try dictionary content key
+                                elif isinstance(response, dict) and 'content' in response:
+                                    analysis = str(response['content'])
+                                # If it's already a string, use it directly
+                                elif isinstance(response, str):
+                                    analysis = response
+                                # Last resort: convert to string
                                 else:
                                     analysis = str(response)
-                            else:
-                                analysis = str(response)
+                            except Exception as e:
+                                logger.error(f"Error extracting content from vision response: {str(e)}")
+                                analysis = f"Error extracting content from vision response: {str(e)}"
                         except Exception as e:
                             error_msg = f"Error calling Ollama vision model: {str(e)}"
                             logger.error(error_msg)
@@ -1365,35 +1384,46 @@ def create_smolavision_agent(config: Dict[str, Any]):
                         }
                     )
                     
-                    # Create a simple string response - don't try to access .content attribute
+                    # IMPORTANT: Always return a string, never an object that might be accessed with .content
                     # This is the key fix for the 'str' object has no attribute 'content' error
                     
-                    # Handle different response formats
-                    if hasattr(response, 'message') and hasattr(response.message, 'content'):
-                        # Object with message.content attribute
-                        return response.message.content
-                    elif isinstance(response, dict):
-                        if 'message' in response:
-                            if isinstance(response['message'], dict) and 'content' in response['message']:
-                                # Dictionary with message.content
-                                return response['message']['content']
-                            elif hasattr(response['message'], 'content'):
-                                # Object with content attribute
-                                return response['message'].content
-                            else:
-                                # Message exists but no content - convert to string
-                                return str(response['message'])
+                    # First, log the response type to help with debugging
+                    logger.debug(f"Ollama response type: {type(response)}")
                     
-                    # Fallback options if we can't find content in expected places
-                    if hasattr(response, 'content'):
-                        return response.content
-                    elif isinstance(response, dict) and 'content' in response:
-                        return response['content']
-                    elif isinstance(response, str):
-                        return response
-                    
-                    # Last resort - convert whole response to string
-                    return str(response)
+                    # Extract content safely from any response format
+                    try:
+                        # Try object attribute access first (newer Ollama versions)
+                        if hasattr(response, 'message') and hasattr(response.message, 'content'):
+                            return str(response.message.content)
+                        
+                        # Try dictionary access (older Ollama versions)
+                        if isinstance(response, dict):
+                            if 'message' in response:
+                                if isinstance(response['message'], dict) and 'content' in response['message']:
+                                    return str(response['message']['content'])
+                                elif hasattr(response['message'], 'content'):
+                                    return str(response['message'].content)
+                                else:
+                                    return str(response['message'])
+                        
+                        # Try direct content attribute
+                        if hasattr(response, 'content'):
+                            return str(response.content)
+                        
+                        # Try dictionary content key
+                        if isinstance(response, dict) and 'content' in response:
+                            return str(response['content'])
+                        
+                        # If it's already a string, return it
+                        if isinstance(response, str):
+                            return response
+                        
+                        # Last resort: convert to string
+                        return str(response)
+                    except Exception as e:
+                        logger.error(f"Error extracting content from response: {str(e)}")
+                        # If all extraction methods fail, return a simple string
+                        return f"Error extracting content from Ollama response: {str(e)}"
                     
                 except Exception as e:
                     logger.error(f"Error in OllamaModel.__call__: {str(e)}")
