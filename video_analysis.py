@@ -1278,67 +1278,57 @@ def create_smolavision_agent(config: Dict[str, Any]):
                 logger.info(f"Initialized OllamaModel with model: {model_name}")
             
             def generate(self, prompt, **kwargs):
+                # This method is no longer needed as we handle everything in __call__
+                # Keeping it for backward compatibility
+                logger.warning("OllamaModel.generate() is deprecated, use __call__() instead")
                 try:
+                    # Just delegate to __call__
+                    return self.__call__(prompt, **kwargs)
+                except Exception as e:
+                    logger.error(f"Error in OllamaModel.generate: {str(e)}")
+                    return f"Error calling Ollama API: {str(e)}"
+            
+            def __call__(self, messages, **kwargs):
+                # This matches the interface expected by smolagents
+                try:
+                    # Format messages properly for Ollama
+                    formatted_messages = []
+                    if isinstance(messages, str):
+                        formatted_messages.append({"role": "user", "content": messages})
+                    elif isinstance(messages, list):
+                        for msg in messages:
+                            if isinstance(msg, str):
+                                formatted_messages.append({"role": "user", "content": msg})
+                            elif isinstance(msg, dict) and 'content' in msg:
+                                formatted_messages.append(msg)
+                            else:
+                                logger.warning(f"Skipping invalid message format: {msg}")
+                    else:
+                        formatted_messages.append({"role": "user", "content": str(messages)})
+                    
                     # Extract relevant parameters
                     max_tokens = kwargs.get("max_tokens", 4096)
                     temperature = kwargs.get("temperature", 0.7)
                     
-                    # Handle different prompt formats
-                    if isinstance(prompt, str):
-                        # Simple string prompt
-                        response = self.client.chat(
-                            model=self.model_name,
-                            messages=[{"role": "user", "content": prompt}],
-                            options={
-                                "num_predict": max_tokens,
-                                "temperature": temperature
-                            }
-                        )
-                    elif isinstance(prompt, list):
-                        # Format messages properly
-                        messages = []
-                        for msg in prompt:
-                            if isinstance(msg, str):
-                                messages.append({"role": "user", "content": msg})
-                            elif isinstance(msg, dict) and "content" in msg:
-                                # Ensure content is a string
-                                if isinstance(msg["content"], str):
-                                    messages.append(msg)
-                                else:
-                                    # Convert complex content to string representation
-                                    msg_copy = msg.copy()
-                                    msg_copy["content"] = str(msg_copy["content"])
-                                    messages.append(msg_copy)
-                        
-                        # Call Ollama API with properly formatted messages
-                        response = self.client.chat(
-                            model=self.model_name,
-                            messages=messages,
-                            options={
-                                "num_predict": max_tokens,
-                                "temperature": temperature
-                            }
-                        )
+                    # Call Ollama API directly
+                    response = self.client.chat(
+                        model=self.model_name,
+                        messages=formatted_messages,
+                        options={
+                            "num_predict": max_tokens,
+                            "temperature": temperature
+                        }
+                    )
+                    
+                    # Handle response properly
+                    if isinstance(response, dict) and 'message' in response and 'content' in response['message']:
+                        return response['message']['content']
                     else:
-                        raise ValueError(f"Unsupported prompt type: {type(prompt)}")
-                    
-                    # Create a response object with content attribute
-                    class Response:
-                        def __init__(self, text):
-                            self.content = text
-                    
-                    return Response(response['message']['content'])
+                        logger.error(f"Unexpected response format from Ollama: {response}")
+                        return f"Error: Unexpected response format from Ollama"
                 except Exception as e:
-                    logger.error(f"Error calling Ollama API: {str(e)}")
-                    # Return fallback response on error
-                    class Response:
-                        def __init__(self, text):
-                            self.content = text
-                    return Response(f"Error calling Ollama API: {str(e)}")
-            
-            def __call__(self, messages, **kwargs):
-                # This matches the interface expected by smolagents
-                return self.generate(messages, **kwargs).content
+                    logger.error(f"Error in OllamaModel.__call__: {str(e)}")
+                    return f"Error calling Ollama API: {str(e)}"
             
             # Required methods for smolagents compatibility
             def get_num_tokens(self, text):
