@@ -202,31 +202,46 @@ class OllamaClient:
             return result.get("response", "")
         else:
             return f"Error generating text with Ollama: {result}"
-    
-    def generate_vision(self, 
-                        model: str, 
-                        prompt: str, 
+
+    def generate_vision(self,
+                        model: str,
+                        prompt: str,
                         images: List[str],
                         max_tokens: int = 4096) -> str:
         """Generate text using an Ollama vision model with images
-        
+
         Args:
             model: The Ollama vision model name (e.g., "llava")
             prompt: The text prompt
             images: List of base64-encoded images
             max_tokens: Maximum tokens to generate
-            
+
         Returns:
-            Generated text response
+            Generated text response as a string
         """
         # First check if the model supports chat API (newer Ollama versions)
         try:
             # Try using the chat API first (preferred for newer Ollama versions)
-            return self._generate_vision_chat(model, prompt, images, max_tokens)
+            response = self._generate_vision_chat(model, prompt, images, max_tokens)
+
+            # Ensure we return a string
+            if isinstance(response, str):
+                return response
+
+            # Handle other response types by extracting content
+            return self._extract_content_safely(response, default_message="Empty response from vision model")
+
         except Exception as e:
             logger.warning(f"Chat API failed for vision model, falling back to generate API: {str(e)}")
             # Fall back to the generate API
-            return self._generate_vision_legacy(model, prompt, images, max_tokens)
+            response = self._generate_vision_legacy(model, prompt, images, max_tokens)
+
+            # Ensure we return a string
+            if isinstance(response, str):
+                return response
+
+            # Handle other response types by extracting content
+            return self._extract_content_safely(response, default_message="Empty response from vision model")
 
     def _generate_vision_chat(self, model: str, prompt: str, images: List[str], max_tokens: int = 4096) -> str:
         """Generate vision response using the chat API (newer Ollama versions)"""
