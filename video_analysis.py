@@ -1397,48 +1397,34 @@ def create_smolavision_agent(config: Dict[str, Any]):
                         }
                     )
 
-                    # Log the response type to help with debugging
-                    logger.debug(f"Ollama response type: {type(response)}")
-
-                    # Instead of trying to access attributes that might not exist,
-                    # always convert to a string representation first
-
-                    # Handle string response
+                    # IMPORTANT: Always ensure we return a string
                     if isinstance(response, str):
                         return response
 
-                    # Handle dict response (common in newer Ollama versions)
+                    # Handle different response formats
+                    # Try the most common paths to content
                     if isinstance(response, dict):
-                        # Try to get message.content
                         if 'message' in response:
                             message = response['message']
                             if isinstance(message, dict) and 'content' in message:
                                 return str(message['content'])
-                            # Handle other formats
                             return str(message)
-                        # Try content directly
                         elif 'content' in response:
                             return str(response['content'])
-                        # Try response field
                         elif 'response' in response:
                             return str(response['response'])
 
-                    # Handle object with attributes (some Ollama client versions)
+                    # Try object attributes
                     if hasattr(response, 'message'):
                         message = response.message
                         if hasattr(message, 'content'):
                             return str(message.content)
                         return str(message)
 
-                    # Handle direct content attribute
                     if hasattr(response, 'content'):
                         return str(response.content)
 
-                    # Handle direct response attribute
-                    if hasattr(response, 'response'):
-                        return str(response.response)
-
-                    # Last resort: convert entire response to string
+                    # Last resort: convert to string
                     return str(response)
 
                 except Exception as e:
