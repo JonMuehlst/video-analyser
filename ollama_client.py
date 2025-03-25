@@ -55,6 +55,29 @@ class OllamaClient:
         for attempt in range(retries):
             try:
                 response = requests.post(url, json=payload, timeout=120)  # Longer timeout for vision models
+                
+                # Check for error responses even with 200 status
+                if response.status_code == 200:
+                    try:
+                        result = response.json()
+                        # Check for error field in response
+                        if isinstance(result, dict) and "error" in result:
+                            error_msg = result["error"]
+                            logger.error(f"Ollama API returned error: {error_msg}")
+                            
+                            # If it's a validation error, return it specially so we can handle it
+                            if "validation" in error_msg.lower() or "pydantic" in error_msg.lower():
+                                return False, f"Validation error: {error_msg}"
+                            
+                            if attempt < retries - 1:
+                                time.sleep(retry_delay)
+                                continue
+                            return False, error_msg
+                        return True, result
+                    except ValueError:
+                        # Not JSON, return the text
+                        return True, response.text
+                
                 response.raise_for_status()
                 return True, response.json()
             except requests.exceptions.Timeout:
@@ -63,6 +86,19 @@ class OllamaClient:
                     time.sleep(retry_delay)
             except requests.exceptions.RequestException as e:
                 logger.error(f"Error calling Ollama API: {str(e)} (attempt {attempt+1}/{retries})")
+                # Check if the error response contains JSON
+                if hasattr(e, 'response') and e.response is not None:
+                    try:
+                        error_data = e.response.json()
+                        if isinstance(error_data, dict) and "error" in error_data:
+                            error_msg = error_data["error"]
+                            # If it's a validation error, return it specially
+                            if "validation" in error_msg.lower() or "pydantic" in error_msg.lower():
+                                return False, f"Validation error: {error_msg}"
+                            return False, error_msg
+                    except:
+                        pass
+                
                 if attempt < retries - 1:
                     time.sleep(retry_delay)
             except Exception as e:
@@ -149,40 +185,98 @@ class OllamaClient:
             adjusted_max_tokens = min(max_tokens, 2048)
         
         # Format images for Ollama chat API
-        content = [{"type": "text", "text": prompt}]
-        
-        for img_base64 in images:
-            content.append({
-                "type": "image",
-                "image": {
-                    "data": img_base64,
-                    "mime_type": "image/jpeg"
+        # Some Ollama versions expect a string for content, not a list
+        try:
+            # First try with the standard format (list of content items)
+            content = [{"type": "text", "text": prompt}]
+            
+            for img_base64 in images:
+                content.append({
+                    "type": "image",
+                    "image": {
+                        "data": img_base64,
+                        "mime_type": "image/jpeg"
+                    }
+                })
+            
+            payload = {
+                "model": model,
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": content
+                    }
+                ],
+                "stream": False,
+                "options": {
+                    "num_predict": adjusted_max_tokens,
+                    "gpu_layers": -1,  # Use all layers that fit on GPU
+                    "f16": True        # Use half-precision for better memory usage
                 }
-            })
+            }
+            
+            logger.debug(f"Sending vision chat request to Ollama: {model} with {len(images)} images (max tokens: {adjusted_max_tokens})")
+            success, result = self._make_request(url, payload)
+            
+            if success:
+                if isinstance(result, dict) and "message" in result:
+                    if isinstance(result["message"], dict) and "content" in result["message"]:
+                        return result["message"]["content"]
+                    elif hasattr(result["message"], "content"):
+                        return result["message"].content
+                    else:
+                        return str(result["message"])
+                return str(result)
+            else:
+                # If we get a validation error, try the fallback approach
+                if "validation error" in str(result).lower() or "pydantic" in str(result).lower():
+                    logger.warning("Validation error with content list format, trying string format")
+                    return self._generate_vision_chat_fallback(model, prompt, images, adjusted_max_tokens)
+                return f"Error generating vision response with Ollama chat API: {result}"
+        except Exception as e:
+            logger.warning(f"Error with standard vision format: {str(e)}, trying fallback")
+            return self._generate_vision_chat_fallback(model, prompt, images, adjusted_max_tokens)
+    
+    def _generate_vision_chat_fallback(self, model: str, prompt: str, images: List[str], max_tokens: int = 4096) -> str:
+        """Fallback method for vision generation using string content format"""
+        url = f"{self.base_url}/api/chat"
+        
+        # For the fallback, we'll use a text-only approach with image descriptions
+        image_descriptions = [f"[Image {i+1}]" for i in range(len(images))]
+        combined_prompt = f"{prompt}\n\nThe message includes {len(images)} images: {', '.join(image_descriptions)}"
         
         payload = {
             "model": model,
             "messages": [
                 {
                     "role": "user",
-                    "content": content
+                    "content": combined_prompt
                 }
             ],
             "stream": False,
             "options": {
-                "num_predict": adjusted_max_tokens,
-                "gpu_layers": -1,  # Use all layers that fit on GPU
-                "f16": True        # Use half-precision for better memory usage
+                "num_predict": max_tokens,
+                "gpu_layers": -1,
+                "f16": True
             }
         }
         
-        logger.debug(f"Sending vision chat request to Ollama: {model} with {len(images)} images (max tokens: {adjusted_max_tokens})")
+        logger.debug(f"Sending fallback vision chat request to Ollama: {model}")
         success, result = self._make_request(url, payload)
         
         if success:
-            return result.get("message", {}).get("content", "")
+            if isinstance(result, dict) and "message" in result:
+                if isinstance(result["message"], dict) and "content" in result["message"]:
+                    return result["message"]["content"]
+                elif hasattr(result["message"], "content"):
+                    return result["message"].content
+                else:
+                    return str(result["message"])
+            return str(result)
         else:
-            return f"Error generating vision response with Ollama chat API: {result}"
+            # If even the fallback fails, try the legacy method
+            logger.warning("Fallback vision chat failed, trying legacy generate method")
+            return self._generate_vision_legacy(model, prompt, images, max_tokens)
     
     def _generate_vision_legacy(self, model: str, prompt: str, images: List[str], max_tokens: int = 4096) -> str:
         """Generate vision response using the legacy generate API"""
