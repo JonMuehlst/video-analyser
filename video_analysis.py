@@ -588,46 +588,34 @@ class VisionAnalysisTool(Tool):
 
                         try:
                             # Call Ollama vision model
-                            response = self._ollama_client.generate_vision(
+                            result = self._ollama_client.generate_vision(
                                 model=vision_model,
                                 prompt=prompt,
                                 images=images,
                                 max_tokens=4096
                             )
 
-                            # IMPORTANT: Always ensure we return a string, not an object
-                            # Extract content safely from any response format
-                            try:
-                                # Log the response type for debugging
-                                logger.debug(f"Vision response type: {type(response)}")
-
-                                # Try object attribute access first (newer Ollama versions)
-                                if hasattr(response, 'message') and hasattr(response.message, 'content'):
-                                    analysis = str(response.message.content)
-                                # Try dictionary access (older Ollama versions)
-                                elif isinstance(response, dict):
-                                    if 'message' in response:
-                                        if isinstance(response['message'], dict) and 'content' in response['message']:
-                                            analysis = str(response['message']['content'])
-                                        elif hasattr(response['message'], 'content'):
-                                            analysis = str(response['message'].content)
-                                        else:
-                                            analysis = str(response['message'])
-                                # Try direct content attribute
-                                elif hasattr(response, 'content'):
-                                    analysis = str(response.content)
-                                # Try dictionary content key
-                                elif isinstance(response, dict) and 'content' in response:
-                                    analysis = str(response['content'])
-                                # If it's already a string, use it directly
-                                elif isinstance(response, str):
-                                    analysis = response
-                                # Last resort: convert to string
+                            # Always ensure result is a string
+                            if not isinstance(result, str):
+                                # Try to extract content from various possible formats
+                                if hasattr(result, 'message') and hasattr(result.message, 'content'):
+                                    analysis = str(result.message.content)
+                                elif isinstance(result, dict) and 'message' in result:
+                                    if isinstance(result['message'], dict) and 'content' in result['message']:
+                                        analysis = str(result['message']['content'])
+                                    else:
+                                        analysis = str(result['message'])
+                                elif hasattr(result, 'content'):
+                                    analysis = str(result.content)
+                                elif isinstance(result, dict) and 'content' in result:
+                                    analysis = str(result['content'])
+                                elif isinstance(result, dict) and 'response' in result:
+                                    analysis = str(result['response'])
                                 else:
-                                    analysis = str(response)
-                            except Exception as e:
-                                logger.error(f"Error extracting content from vision response: {str(e)}")
-                                analysis = f"Error extracting content from vision response: {str(e)}"
+                                    # Last resort: convert to string
+                                    analysis = str(result)
+                            else:
+                                analysis = result
                         except Exception as e:
                             error_msg = f"Error calling Ollama vision model: {str(e)}"
                             logger.error(error_msg)
