@@ -283,29 +283,79 @@ class OllamaClient:
         Returns:
             Generated text response as a string
         """
-        # First check if the model supports chat API (newer Ollama versions)
-        try:
-            # Try using the chat API first (preferred for newer Ollama versions)
-            response = self._generate_vision_chat(model, prompt, images, max_tokens)
+        url = f"{self.base_url}/api/generate"
 
-            # Ensure we return a string
-            if isinstance(response, str):
-                return response
+        # Adjust parameters based on model and number of images to prevent OOM errors
+        adjusted_max_tokens = max_tokens
+        if len(images) > 2:
+            # Reduce token limit for multiple images
+            adjusted_max_tokens = min(max_tokens, 2048)
 
-            # Handle other response types by extracting content
-            return self._extract_content_safely(response, default_message="Empty response from vision model")
+        # Format images for Ollama generate API
+        formatted_images = []
+        for img_base64 in images:
+            # Remove data:image/jpeg;base64, prefix if present
+            if "base64," in img_base64:
+                img_base64 = img_base64.split("base64,")[1]
 
-        except Exception as e:
-            logger.warning(f"Chat API failed for vision model, falling back to generate API: {str(e)}")
-            # Fall back to the generate API
-            response = self._generate_vision_legacy(model, prompt, images, max_tokens)
+            formatted_images.append({
+                "data": img_base64,
+                "type": "image/jpeg"
+            })
 
-            # Ensure we return a string
-            if isinstance(response, str):
-                return response
+        payload = {
+            "model": model,
+            "prompt": prompt,
+            "stream": False,
+            "images": formatted_images,
+            "options": {
+                "num_predict": adjusted_max_tokens,
+                "gpu_layers": -1,  # Use all layers that fit on GPU
+                "f16": True  # Use half-precision for better memory usage
+            }
+        }
 
-            # Handle other response types by extracting content
-            return self._extract_content_safely(response, default_message="Empty response from vision model")
+        logger.info(f"Generating vision response with model: {model} with {len(images)} images")
+        success, result = self._make_request(url, payload)
+
+        if success:
+            # IMPORTANT: Always ensure we return a string
+            if isinstance(result, str):
+                return result
+
+            # If it's a dict with a response key (typical for generate API)
+            if isinstance(result, dict) and "response" in result:
+                return str(result["response"])
+
+            # Extract content from any response format using our helper
+            if hasattr(self, '_extract_content_safely'):
+                return self._extract_content_safely(result)
+
+            # Fallback if _extract_content_safely doesn't exist
+            try:
+                # Try different paths to content
+                if isinstance(result, dict):
+                    if 'message' in result:
+                        if isinstance(result['message'], dict) and 'content' in result['message']:
+                            return str(result['message']['content'])
+                        return str(result['message'])
+                    return str(result)
+
+                if hasattr(result, 'message'):
+                    if hasattr(result.message, 'content'):
+                        return str(result.message.content)
+                    return str(result.message)
+
+                if hasattr(result, 'content'):
+                    return str(result.content)
+
+                # Last resort: convert to string
+                return str(result)
+            except Exception as e:
+                logger.error(f"Error extracting content: {str(e)}")
+                return f"Error: {str(e)}"
+        else:
+            return f"Error generating vision response with Ollama: {result}"
 
     def _generate_vision_chat(self, model: str, prompt: str, images: List[str], max_tokens: int = 4096) -> str:
         """Generate vision response using the chat API (newer Ollama versions)"""
