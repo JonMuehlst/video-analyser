@@ -14,10 +14,18 @@ import argparse
 import logging
 import asyncio
 import gc
-from datetime import timedelta
-from typing import List, Dict, Any, Optional, Union
+import base64
+import dotenv
+from io import BytesIO
+from datetime import timedelta, datetime
 from pathlib import Path
-from collections import deque
+from typing import List, Dict, Any, Optional
+
+# Load environment variables from .env file
+dotenv.load_dotenv(Path(__file__).parent / '.env')
+
+# Import computer vision libraries
+import cv2
 from PIL import Image
 from io import BytesIO
 
@@ -26,9 +34,14 @@ from smolagents import CodeAgent, Tool, HfApiModel, LiteLLMModel
 import ollama
 
 # Import local modules
-from config import create_default_config, ModelConfig, VideoConfig
-from ollama_client import OllamaClient
-from utils import ensure_directory, format_time_seconds
+from config import create_default_config
+from tools import (
+    FrameExtractionTool,
+    OCRExtractionTool,
+    BatchCreationTool,
+    VisionAnalysisTool,
+    SummarizationTool
+)
 
 # Configure logging
 logging.basicConfig(
@@ -516,37 +529,37 @@ class VisionAnalysisTool(Tool):
                     # Use Ollama for local inference
                     base_url = ollama_config.get("base_url", "http://localhost:11434") if ollama_config else "http://localhost:11434"
                     vision_model = ollama_config.get("vision_model", "llava") if ollama_config else "llava"
-                        
+
                     # Create or reuse Ollama client
                     try:
                         if not hasattr(self, '_ollama_client') or self._ollama_client is None:
                             self._ollama_client = OllamaClient(base_url=base_url)
-                            
+
                         # For smaller GPUs, we need to be careful with batch size
                         # Process images in smaller sub-batches if needed
                         max_images_per_request = 3  # Limit for 12GB VRAM
                     except Exception as e:
                         logger.error(f"Error initializing Ollama client: {str(e)}")
                         return f"Error initializing Ollama client: {str(e)}"
-                        
+
                     if len(batch) > max_images_per_request:
                         logger.info(f"Batch size ({len(batch)}) exceeds max images per request ({max_images_per_request}). Processing in sub-batches.")
-                            
+
                         # Process in sub-batches and combine results
                         sub_batch_results = []
                         for i in range(0, len(batch), max_images_per_request):
                             sub_batch = batch[i:i + max_images_per_request]
-                                
+
                             # Extract base64 images for this sub-batch
                             images = []
                             for frame in sub_batch:
                                 base64_image = frame.get('base64_image', '')
                                 if base64_image and isinstance(base64_image, str):
                                     images.append(base64_image)
-                                
+
                             # Create a sub-prompt
                             sub_prompt = f"Analyzing frames {i+1} to {i+len(sub_batch)} of {len(batch)}:\n{prompt}"
-                                
+
                             try:
                                 # Call Ollama vision model for this sub-batch
                                 sub_result = self._ollama_client.generate_vision(
@@ -555,13 +568,13 @@ class VisionAnalysisTool(Tool):
                                     images=images,
                                     max_tokens=2048  # Smaller token limit for sub-batches
                                 )
-                                    
+
                                 sub_batch_results.append(sub_result)
                             except Exception as e:
                                 error_msg = f"Error processing sub-batch {i+1}: {str(e)}"
                                 logger.error(error_msg)
                                 sub_batch_results.append(error_msg)
-                            
+
                         # Combine results
                         analysis = "\n\n".join(sub_batch_results)
                     else:
@@ -572,7 +585,7 @@ class VisionAnalysisTool(Tool):
                             base64_image = frame.get('base64_image', '')
                             if base64_image and isinstance(base64_image, str):
                                 images.append(base64_image)
-                            
+
                         try:
                             # Call Ollama vision model
                             response = self._ollama_client.generate_vision(
@@ -581,13 +594,13 @@ class VisionAnalysisTool(Tool):
                                 images=images,
                                 max_tokens=4096
                             )
-                            
+
                             # IMPORTANT: Always ensure we return a string, not an object
                             # Extract content safely from any response format
                             try:
                                 # Log the response type for debugging
                                 logger.debug(f"Vision response type: {type(response)}")
-                                
+
                                 # Try object attribute access first (newer Ollama versions)
                                 if hasattr(response, 'message') and hasattr(response.message, 'content'):
                                     analysis = str(response.message.content)
@@ -623,7 +636,7 @@ class VisionAnalysisTool(Tool):
                     error_msg = f"Error in Ollama vision processing: {str(e)}"
                     logger.error(error_msg)
                     analysis = error_msg
-                
+
             # Prepare images based on the model
             elif model_name.startswith("claude"):
                 try:
@@ -650,13 +663,13 @@ class VisionAnalysisTool(Tool):
 
                     # Make API call
                     model_id = "claude-3-opus-20240229" if model_name == "claude" else model_name
-                    
+
                     # Create the content array for the message
                     message_content = [
                         {"type": "text", "text": prompt}
                     ]
                     message_content.extend(images)
-                    
+
                     # Make the API call with properly formatted content
                     response = self._anthropic_client.messages.create(
                         model=model_id,
@@ -1055,25 +1068,25 @@ VIDEO ANALYSIS (MIDDLE PART):
                         # Use Ollama for local inference
                         base_url = ollama_config.get("base_url", "http://localhost:11434") if ollama_config else "http://localhost:11434"
                         model = ollama_config.get("model_name", "llama3") if ollama_config else "llama3"
-                        
+
                         # Create or reuse Ollama client
                         if not hasattr(self, '_ollama_client') or self._ollama_client is None:
                             self._ollama_client = OllamaClient(base_url=base_url)
                     except Exception as e:
                         logger.error(f"Error initializing Ollama client: {str(e)}")
                         return {"error": f"Error initializing Ollama client: {str(e)}"}
-                    
+
                     # For smaller models, we need to be more careful with context length
                     # Determine if we should use a smaller model for better performance
                     if len(prompt) > 8000 and "small_models" in ollama_config:
                         # Use the smallest model for very large prompts
                         logger.info(f"Using smaller model for large prompt ({len(prompt)} chars)")
                         model = ollama_config.get("small_models", {}).get("fast", model)
-                    
+
                     # Call Ollama model with appropriate token limit
                     # Smaller models need smaller token limits
                     max_tokens = 2048 if "phi" in model or "gemma:2b" in model or "tiny" in model else 4096
-                    
+
                     try:
                         chunk_summary = self._ollama_client.generate(
                             model=model,
@@ -1084,7 +1097,7 @@ VIDEO ANALYSIS (MIDDLE PART):
                         error_msg = f"Error calling Ollama API: {str(e)}"
                         logger.error(error_msg)
                         chunk_summary = error_msg
-                
+
                 # Call the LLM API based on model name
                 elif model_name.startswith("claude"):
                     try:
@@ -1315,7 +1328,7 @@ def create_smolavision_agent(config: Dict[str, Any]):
                 self.base_url = base_url
                 self.client = ollama.Client(host=base_url)
                 logger.info(f"Initialized OllamaModel with model: {model_name}")
-            
+
             def generate(self, prompt, **kwargs):
                 # This method is no longer needed as we handle everything in __call__
                 # Keeping it for backward compatibility
@@ -1326,13 +1339,13 @@ def create_smolavision_agent(config: Dict[str, Any]):
                 except Exception as e:
                     logger.error(f"Error in OllamaModel.generate: {str(e)}")
                     return f"Error calling Ollama API: {str(e)}"
-            
+
             def __call__(self, messages, **kwargs):
                 # This matches the interface expected by smolagents
                 try:
                     # Format messages properly for Ollama
                     formatted_messages = []
-                    
+
                     # Handle different message formats
                     if isinstance(messages, str):
                         formatted_messages.append({"role": "user", "content": messages})
@@ -1343,7 +1356,7 @@ def create_smolavision_agent(config: Dict[str, Any]):
                             elif isinstance(msg, dict):
                                 role = msg.get("role", "user")
                                 content = msg.get("content", "")
-                                
+
                                 # Handle content that is a list (like Anthropic format)
                                 if isinstance(content, list):
                                     text_parts = []
@@ -1352,7 +1365,7 @@ def create_smolavision_agent(config: Dict[str, Any]):
                                             text_parts.append(item["text"])
                                         elif isinstance(item, dict) and "type" in item and item["type"] == "text":
                                             text_parts.append(item.get("text", ""))
-                                    
+
                                     formatted_messages.append({
                                         "role": role if role in ["user", "assistant", "system", "tool"] else "user",
                                         "content": " ".join(text_parts)
@@ -1368,11 +1381,11 @@ def create_smolavision_agent(config: Dict[str, Any]):
                     else:
                         # Handle other types of input by converting to string
                         formatted_messages.append({"role": "user", "content": str(messages)})
-                    
+
                     # Extract relevant parameters
                     max_tokens = kwargs.get("max_tokens", 4096)
                     temperature = kwargs.get("temperature", 0.7)
-                    
+
                     # Call Ollama API directly
                     response = self.client.chat(
                         model=self.model_name,
@@ -1383,19 +1396,19 @@ def create_smolavision_agent(config: Dict[str, Any]):
                             "stream": False
                         }
                     )
-                    
+
                     # IMPORTANT: Always return a string, never an object that might be accessed with .content
                     # This is the key fix for the 'str' object has no attribute 'content' error
-                    
+
                     # First, log the response type to help with debugging
                     logger.debug(f"Ollama response type: {type(response)}")
-                    
+
                     # Extract content safely from any response format
                     try:
                         # Try object attribute access first (newer Ollama versions)
                         if hasattr(response, 'message') and hasattr(response.message, 'content'):
                             return str(response.message.content)
-                        
+
                         # Try dictionary access (older Ollama versions)
                         if isinstance(response, dict):
                             if 'message' in response:
@@ -1405,42 +1418,42 @@ def create_smolavision_agent(config: Dict[str, Any]):
                                     return str(response['message'].content)
                                 else:
                                     return str(response['message'])
-                        
+
                         # Try direct content attribute
                         if hasattr(response, 'content'):
                             return str(response.content)
-                        
+
                         # Try dictionary content key
                         if isinstance(response, dict) and 'content' in response:
                             return str(response['content'])
-                        
+
                         # If it's already a string, return it
                         if isinstance(response, str):
                             return response
-                        
+
                         # Last resort: convert to string
                         return str(response)
                     except Exception as e:
                         logger.error(f"Error extracting content from response: {str(e)}")
                         # If all extraction methods fail, return a simple string
                         return f"Error extracting content from Ollama response: {str(e)}"
-                    
+
                 except Exception as e:
                     logger.error(f"Error in OllamaModel.__call__: {str(e)}")
                     return f"Error calling Ollama API: {str(e)}"
-            
+
             # Required methods for smolagents compatibility
             def get_num_tokens(self, text):
                 # Simple approximation: 4 chars ~= 1 token
                 return len(text) // 4
-                
+
             def get_max_tokens(self):
                 return 4096
-        
+
         # Get model name from config
         ollama_model_name = model_config.ollama.model_name if hasattr(model_config.ollama, "model_name") else "llama3"
         ollama_base_url = model_config.ollama.base_url if hasattr(model_config.ollama, "base_url") else "http://localhost:11434"
-        
+
         model = OllamaModel(model_name=ollama_model_name, base_url=ollama_base_url)
         logger.info(f"Using Ollama model: {ollama_model_name} for agent")
     elif model_type == "anthropic":
@@ -1471,6 +1484,7 @@ def create_smolavision_agent(config: Dict[str, Any]):
     return agent
 
 
+
 # Main function to run the entire workflow
 def run_smolavision(
         video_path: str,
@@ -1495,8 +1509,11 @@ def run_smolavision(
 ):
     """Run the complete SmolaVision workflow"""
 
-    # Create output directory
-    output_dir = "output"
+    now = datetime.now()
+    formatted_time = now.strftime("%Y%m%d%H%M")
+
+    # Create output directory with datetime format
+    output_dir = os.path.join("output", formatted_time)
     os.makedirs(output_dir, exist_ok=True)
 
     # Create default configuration if none provided
@@ -1582,6 +1599,49 @@ def run_smolavision(
         summary_model_name = "ollama"
         logger.info(f"Using Ollama for summarization with model: {ollama_config.model_name}")
 
+    # Check if we need to use a smaller context window model for large videos
+    # Claude-3-Opus has a 200k token limit
+    try:
+        video_cap = cv2.VideoCapture(video_path)
+        if not video_cap.isOpened():
+            logger.error(f"Could not open video file: {video_path}")
+            return f"Error: Could not open video file: {video_path}"
+
+        fps = video_cap.get(cv2.CAP_PROP_FPS)
+        frame_count = int(video_cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        duration = frame_count / fps if fps > 0 else 0
+        video_cap.release()
+
+        # Estimate token count based on video duration and settings
+        estimated_frames = duration / frame_interval
+        if detect_scenes:
+            # Scene detection typically reduces frame count by ~30-50%
+            estimated_frames = estimated_frames * 0.7
+
+        # Rough estimate: each frame analysis is ~1000 tokens
+        estimated_tokens = estimated_frames * 1000
+
+        # Calculate segment duration if needed
+        segment_duration = end_time - start_time if end_time > start_time else duration
+
+        # Adjust model and batch size based on estimated token count
+        if estimated_tokens > 150000:  # Leave buffer below 200k limit
+            logger.warning(f"Video is very long ({duration:.1f} seconds). Using Claude-3-Sonnet instead of Opus for better token efficiency.")
+            if model_type == "anthropic" and vision_model_name == "claude":
+                vision_model_name = "claude-3-sonnet-20240229"
+                logger.info(f"Switched to {vision_model_name} for vision analysis")
+
+            # Reduce batch size for very large videos
+            if estimated_tokens > 180000:
+                max_images_per_batch = min(max_images_per_batch, 8)
+                logger.info(f"Reduced batch size to {max_images_per_batch} images per batch")
+
+            # Recommend segmentation if not already segmented
+            if segment_duration > 300 and segment_duration == duration:  # If processing more than 5 minutes at once
+                logger.warning(f"Consider using --segment-duration 300 for better results with long videos")
+    except Exception as e:
+        logger.warning(f"Could not estimate video size: {str(e)}")
+
     # Run the agent to process the video
     task = f"""
 Analyze the video at path "{video_path}" with the following steps:
@@ -1592,9 +1652,11 @@ Analyze the video at path "{video_path}" with the following steps:
    - Use scene threshold of {scene_threshold}
    - Start at {start_time} seconds
    - {'End at ' + str(end_time) + ' seconds' if end_time > 0 else 'Process until the end of the video'}
+   - Save all outputs to the directory: "{output_dir}"
 
 2. {'Apply OCR to extract text from frames using extract_text_ocr tool' if enable_ocr else '# OCR disabled'}
    {'- Specify language as "' + language + '"' if enable_ocr else ''}
+   {'- Save all outputs to the directory: "' + output_dir + '"' if enable_ocr else ''}
 
 3. Create batches of frames using create_batches tool
    - Use maximum batch size of {max_batch_size_mb} MB
@@ -1607,15 +1669,26 @@ Analyze the video at path "{video_path}" with the following steps:
    - Use "{vision_model_name}" as the vision model
    {'- Use mission type "' + mission + '"' if mission != "general" else ''}
    {'- Make use of OCR text in frames when available' if enable_ocr else ''}
+   - Save all outputs to the directory: "{output_dir}"
 
 5. Generate a final coherent summary using generate_summary tool
    - Combine all the analyses
    - Use "{summary_model_name}" as the summary model
    {'- Use mission type "' + mission + '"' if mission != "general" else ''}
    {'- Generate a workflow flowchart' if generate_flowchart else ''}
+   - Create a detailed, structured summary with clear sections for:
+     * Overview/Introduction
+     * Key Steps in the Workflow
+     * Prompting Strategies
+     * UI Elements and Functions
+     * Logical Sequence and Dependencies
+     * Best Practices Demonstrated
+   - Provide granular details about each aspect of the workflow
+   - Save all outputs to the directory: "{output_dir}"
 
 The goal is to create a comprehensive analysis of the video, capturing all visual elements,
 text content (with translations), and {'workflow logic' if mission == 'workflow' else 'narrative flow'}.
+All output files should be saved to: "{output_dir}"
 """
 
     logger.info(f"Starting analysis of video: {video_path}")
@@ -1633,13 +1706,40 @@ text content (with translations), and {'workflow logic' if mission == 'workflow'
             "end_time": end_time,
             "mission": mission,
             "generate_flowchart": generate_flowchart,
-            "ollama_config": ollama_config.to_dict() if ollama_config.enabled else None
+            "ollama_config": ollama_config.to_dict() if ollama_config.enabled else None,
+            "output_dir": output_dir,  # Pass output directory to tools
+            "max_batch_size_mb": max_batch_size_mb,
+            "max_images_per_batch": max_images_per_batch,
+            "batch_overlap_frames": batch_overlap_frames,
+            "summary_sections": [
+                "Overview",
+                "Key Steps in the Workflow",
+                "Prompting Strategies",
+                "UI Elements and Functions",
+                "Logical Sequence and Dependencies",
+                "Best Practices Demonstrated"
+            ],
+            "summary_detail_level": "high",  # Request highly detailed summaries
+            "include_examples": True,        # Include examples of prompts and responses
+            "max_tokens_per_batch": 150000,  # Maximum tokens per batch for Claude
+            "chunk_large_batches": True      # Enable chunking for large batches
         })
 
         # Log completion
         elapsed_time = time.time() - start_time_execution
         logger.info(f"Analysis completed in {elapsed_time:.1f} seconds")
         logger.info(f"Results saved to directory: {output_dir}")
+
+        # Update result paths to include output directory
+        if isinstance(result, dict):
+            # Ensure all file paths in the result use the output directory
+            for key in result:
+                if isinstance(result[key], str) and (
+                    key.endswith('_path') or key in ['coherent_summary', 'full_analysis', 'flowchart']
+                ):
+                    # If the path doesn't already include the output directory, update it
+                    if not result[key].startswith(output_dir):
+                        result[key] = os.path.join(output_dir, os.path.basename(result[key]))
 
         return result
 
@@ -1666,6 +1766,8 @@ def main():
     parser.add_argument("--enable-ocr", action="store_true", help="Enable OCR text extraction from frames")
     parser.add_argument("--start-time", type=float, default=0.0, help="Start time in seconds (default: 0 = beginning)")
     parser.add_argument("--end-time", type=float, default=0.0, help="End time in seconds (default: 0 = entire video)")
+    parser.add_argument("--segment-duration", type=float, default=0.0,
+                        help="Process video in segments of this duration (in seconds, 0 = process entire video)")
     parser.add_argument("--mission", default="general", choices=["general", "workflow"],
                         help="Analysis mission type")
     parser.add_argument("--generate-flowchart", action="store_true", help="Generate a workflow flowchart")
@@ -1737,8 +1839,128 @@ def main():
     video_config.max_images_per_batch = args.max_images_per_batch
     video_config.batch_overlap_frames = args.batch_overlap_frames
 
-    # Run SmolaVision
-    result = run_smolavision(video_path=args.video, config=config)
+    # Check if we need to process the video in segments
+    if args.segment_duration > 0:
+        try:
+            # Get video duration
+            video_cap = cv2.VideoCapture(args.video)
+            if not video_cap.isOpened():
+                print(f"Error: Could not open video file: {args.video}")
+                return
+
+            fps = video_cap.get(cv2.CAP_PROP_FPS)
+            frame_count = int(video_cap.get(cv2.CAP_PROP_FRAME_COUNT))
+            total_duration = frame_count / fps if fps > 0 else 0
+            video_cap.release()
+
+            # Create a timestamp for this run
+            now = datetime.now()
+            formatted_time = now.strftime("%Y%m%d%H%M")
+
+            # Process video in segments
+            segment_results = []
+            start_time = args.start_time
+            end_time = min(start_time + args.segment_duration, total_duration) if total_duration > 0 else start_time + args.segment_duration
+
+            print(f"Processing video in segments of {args.segment_duration} seconds")
+            segment_count = 1
+
+            # Reduce batch size for segmented processing to avoid token limit issues
+            video_config.max_images_per_batch = min(args.max_images_per_batch, 10)
+            logger.info(f"Using reduced batch size of {video_config.max_images_per_batch} for segmented processing")
+
+            while start_time < total_duration if total_duration > 0 else True:
+                print(f"\nProcessing segment {segment_count}: {start_time:.1f}s to {end_time:.1f}s")
+
+                # Update config for this segment
+                video_config.start_time = start_time
+                video_config.end_time = end_time
+
+                # Run SmolaVision for this segment
+                segment_result = run_smolavision(video_path=args.video, config=config)
+
+                if isinstance(segment_result, dict) and "error" not in segment_result:
+                    segment_results.append(segment_result)
+                    print(f"Segment {segment_count} completed successfully")
+                else:
+                    print(f"Error processing segment {segment_count}: {segment_result}")
+
+                # Move to next segment
+                start_time = end_time
+                end_time = min(start_time + args.segment_duration, total_duration) if total_duration > 0 else start_time + args.segment_duration
+                segment_count += 1
+
+                # Break if we've reached the end or if an end time was specified
+                if (total_duration > 0 and start_time >= total_duration) or (args.end_time > 0 and start_time >= args.end_time):
+                    break
+
+            # Combine segment results into a single result
+            if segment_results:
+                # Create a combined result dictionary
+                combined_result = segment_results[0].copy() if isinstance(segment_results[0], dict) else {}
+
+                # Collect all analyses for summarization
+                all_analyses = []
+                for segment_result in segment_results:
+                    if isinstance(segment_result, dict) and "analyses" in segment_result:
+                        all_analyses.extend(segment_result["analyses"])
+
+                # Generate a combined summary
+                if all_analyses:
+                    try:
+                        # Create a new output directory for the combined result
+                        combined_output_dir = os.path.join("output", f"{formatted_time}_combined")
+                        os.makedirs(combined_output_dir, exist_ok=True)
+
+                        # Create the summarization tool
+                        summarization_tool = SummarizationTool()
+
+                        # Generate the combined summary
+                        summary_result = summarization_tool.forward(
+                            analyses=all_analyses,
+                            language=args.language,
+                            model_name=model_config.summary_model,
+                            api_key=api_key,
+                            mission=args.mission,
+                            generate_flowchart=args.generate_flowchart,
+                            output_dir=combined_output_dir
+                        )
+
+                        # Update the combined result with the summary
+                        if isinstance(summary_result, dict):
+                            for key, value in summary_result.items():
+                                combined_result[key] = value
+
+                        # Update paths to use the combined output directory
+                        for key in combined_result:
+                            if isinstance(combined_result[key], str) and (
+                                key.endswith('_path') or key in ['coherent_summary', 'full_analysis', 'flowchart']
+                            ):
+                                # Update the path to use the combined output directory
+                                combined_result[key] = os.path.join(
+                                    combined_output_dir,
+                                    os.path.basename(combined_result[key])
+                                )
+
+                        result = combined_result
+                        logger.info(f"Combined summary generated in: {combined_output_dir}")
+                    except Exception as e:
+                        logger.error(f"Error generating combined summary: {str(e)}")
+                        # Fall back to the last segment result
+                        result = segment_results[-1]
+                        logger.info("Using last segment result as fallback")
+                else:
+                    # Fall back to the last segment result
+                    result = segment_results[-1]
+                    logger.info("No analyses found, using last segment result")
+            else:
+                result = "No segments processed successfully"
+        except Exception as e:
+            print(f"Error processing video in segments: {str(e)}")
+            result = f"Error: {str(e)}"
+    else:
+        # Run SmolaVision for the entire video
+        result = run_smolavision(video_path=args.video, config=config)
 
     # Print result information
     if isinstance(result, dict):
@@ -1747,14 +1969,55 @@ def main():
         else:
             print("\nSummary of video:")
             print("-" * 80)
-            print(
-                result["summary_text"][:1000] + "..." if len(result["summary_text"]) > 1000 else result["summary_text"])
-            print("-" * 80)
+
+            # Print a more structured summary with sections
+            summary_text = result.get("summary_text", "")
+
+            # Try to extract sections from the summary if they exist
+            sections = {}
+            current_section = "Overview"
+            section_content = []
+
+            for line in summary_text.split('\n'):
+                if line.strip() and (line.strip().endswith(':') or
+                                    line.strip().startswith('# ') or
+                                    line.strip().startswith('## ')):
+                    # This looks like a section header
+                    if section_content:
+                        sections[current_section] = '\n'.join(section_content)
+                        section_content = []
+                    current_section = line.strip().replace('# ', '').replace('## ', '')
+                    if current_section.endswith(':'):
+                        current_section = current_section[:-1]
+                else:
+                    section_content.append(line)
+
+            # Add the last section
+            if section_content:
+                sections[current_section] = '\n'.join(section_content)
+
+            # Print the structured summary
+            if sections and len(sections) > 1:
+                for section, content in sections.items():
+                    print(f"\n{section}:")
+                    print("-" * len(section) + "-")
+                    print(content.strip())
+            else:
+                # Fall back to the original summary if no sections were found
+                print(summary_text[:1000] + "..." if len(summary_text) > 1000 else summary_text)
+
+            print("\n" + "-" * 80)
             print(f"Full summary saved to: {result['coherent_summary']}")
             print(f"Full analysis saved to: {result['full_analysis']}")
 
             if "flowchart" in result:
                 print(f"Workflow flowchart saved to: {result['flowchart']}")
+
+            # Provide a hint about viewing the mermaid diagram
+            if "flowchart" in result and result["flowchart"].endswith(".mmd"):
+                print("\nTo view the flowchart, you can use the Mermaid Live Editor:")
+                print("1. Open https://mermaid.live/")
+                print("2. Copy the contents of the .mmd file and paste it into the editor")
     else:
         print(result)
 

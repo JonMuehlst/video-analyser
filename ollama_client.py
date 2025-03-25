@@ -1,8 +1,9 @@
 """
-Ollama client for local model inference
+Client for interacting with Ollama API for local model inference
 """
-import base64
+import os
 import json
+import base64
 import logging
 import time
 import requests
@@ -25,7 +26,7 @@ class OllamaClient:
             response = requests.get(f"{self.base_url}/api/tags", timeout=5)
             response.raise_for_status()
             models = [model["name"] for model in response.json().get("models", [])]
-            logger.info(f"Successfully connected to Ollama server. Available models: {', '.join(models[:5])}" + 
+            logger.info(f"Successfully connected to Ollama server. Available models: {', '.join(models[:5])}" +
                        (f" and {len(models)-5} more" if len(models) > 5 else ""))
             return True
         except requests.exceptions.ConnectionError:
@@ -43,7 +44,7 @@ class OllamaClient:
             response.raise_for_status()
             result = response.json()
             models = [model["name"] for model in result.get("models", [])]
-            logger.info(f"Available Ollama models: {', '.join(models)}")
+            logger.info(f"Available Ollama models: {', '.join(models) if models else 'None'}")
             return models
         except Exception as e:
             logger.error(f"Error listing Ollama models: {str(e)}")
@@ -55,7 +56,7 @@ class OllamaClient:
         for attempt in range(retries):
             try:
                 response = requests.post(url, json=payload, timeout=120)  # Longer timeout for vision models
-                
+
                 # Check for error responses even with 200 status
                 if response.status_code == 200:
                     try:
@@ -64,11 +65,11 @@ class OllamaClient:
                         if isinstance(result, dict) and "error" in result:
                             error_msg = result["error"]
                             logger.error(f"Ollama API returned error: {error_msg}")
-                            
+
                             # If it's a validation error, return it specially so we can handle it
                             if "validation" in error_msg.lower() or "pydantic" in error_msg.lower():
                                 return False, f"Validation error: {error_msg}"
-                            
+
                             if attempt < retries - 1:
                                 time.sleep(retry_delay)
                                 continue
@@ -77,7 +78,7 @@ class OllamaClient:
                     except ValueError:
                         # Not JSON, return the text
                         return True, response.text
-                
+
                 response.raise_for_status()
                 return True, response.json()
             except requests.exceptions.Timeout:
@@ -98,7 +99,7 @@ class OllamaClient:
                             return False, error_msg
                     except:
                         pass
-                
+
                 if attempt < retries - 1:
                     time.sleep(retry_delay)
             except Exception as e:
@@ -106,7 +107,60 @@ class OllamaClient:
                 return False, f"Error: {str(e)}"
         
         return False, "Failed after multiple retries"
-        
+
+    def get_model_info(self, model_name: str) -> Dict[str, Any]:
+        """Get information about a specific model"""
+        try:
+            response = requests.get(f"{self.base_url}/api/show?name={model_name}", timeout=10)
+            if response.status_code == 200:
+                return response.json()
+            else:
+                logger.error(f"Error getting model info: {response.status_code} - {response.text}")
+                return {}
+        except Exception as e:
+            logger.error(f"Error getting model info: {str(e)}")
+            return {}
+
+    def pull_model(self, model_name: str) -> bool:
+        """Pull a model from Ollama library"""
+        try:
+            logger.info(f"Pulling model: {model_name}...")
+
+            # Use the Ollama API to pull the model
+            url = f"{self.base_url}/api/pull"
+            payload = {"name": model_name}
+
+            # This is a long operation, so we'll stream the response
+            response = requests.post(url, json=payload, stream=True, timeout=3600)
+
+            if response.status_code != 200:
+                logger.error(f"Error pulling model: {response.status_code} - {response.text}")
+                return False
+
+            # Process the streaming response to show progress
+            for line in response.iter_lines():
+                if line:
+                    try:
+                        data = json.loads(line)
+                        if "status" in data:
+                            if data.get("completed", False):
+                                logger.info(f"Model pull completed: {model_name}")
+                                return True
+                            else:
+                                # Show progress if available
+                                progress = data.get("progress", 0)
+                                total = data.get("total", 0)
+                                if total > 0:
+                                    percent = (progress / total) * 100
+                                    logger.info(f"Pulling {model_name}: {percent:.1f}% ({progress}/{total})")
+                    except json.JSONDecodeError:
+                        pass
+
+            return True
+        except Exception as e:
+            logger.error(f"Error pulling model: {str(e)}")
+            return False
+
     def generate(self, 
                  model: str, 
                  prompt: str, 
@@ -132,7 +186,7 @@ class OllamaClient:
         }
         
         # Add GPU-specific options to prevent OOM errors
-        if "3060" in model or any(small_model in model for small_model in ["phi", "gemma:2b", "tiny", "1b", "7b"]):
+        if "3060" in model or any(small_model in model.lower() for small_model in ["phi", "gemma:2b", "tiny", "1b", "7b"]):
             payload["options"].update({
                 "gpu_layers": -1,  # Use all layers that fit on GPU
                 "f16": True,       # Use half-precision for better memory usage
@@ -173,23 +227,23 @@ class OllamaClient:
             logger.warning(f"Chat API failed for vision model, falling back to generate API: {str(e)}")
             # Fall back to the generate API
             return self._generate_vision_legacy(model, prompt, images, max_tokens)
-    
+
     def _generate_vision_chat(self, model: str, prompt: str, images: List[str], max_tokens: int = 4096) -> str:
         """Generate vision response using the chat API (newer Ollama versions)"""
         url = f"{self.base_url}/api/chat"
-        
+
         # Adjust parameters based on model and number of images to prevent OOM errors
         adjusted_max_tokens = max_tokens
         if len(images) > 2:
             # Reduce token limit for multiple images
             adjusted_max_tokens = min(max_tokens, 2048)
-        
+
         # Format images for Ollama chat API
         # Some Ollama versions expect a string for content, not a list
         try:
             # First try with the standard format (list of content items)
             content = [{"type": "text", "text": prompt}]
-            
+
             for img_base64 in images:
                 content.append({
                     "type": "image",
@@ -198,7 +252,7 @@ class OllamaClient:
                         "mime_type": "image/jpeg"
                     }
                 })
-            
+
             payload = {
                 "model": model,
                 "messages": [
@@ -214,10 +268,10 @@ class OllamaClient:
                     "f16": True        # Use half-precision for better memory usage
                 }
             }
-            
+
             logger.debug(f"Sending vision chat request to Ollama: {model} with {len(images)} images (max tokens: {adjusted_max_tokens})")
             success, result = self._make_request(url, payload)
-            
+
             if success:
                 if isinstance(result, dict) and "message" in result:
                     if isinstance(result["message"], dict) and "content" in result["message"]:
@@ -236,15 +290,15 @@ class OllamaClient:
         except Exception as e:
             logger.warning(f"Error with standard vision format: {str(e)}, trying fallback")
             return self._generate_vision_chat_fallback(model, prompt, images, adjusted_max_tokens)
-    
+
     def _generate_vision_chat_fallback(self, model: str, prompt: str, images: List[str], max_tokens: int = 4096) -> str:
         """Fallback method for vision generation using string content format"""
         url = f"{self.base_url}/api/chat"
-        
+
         # For the fallback, we'll use a text-only approach with image descriptions
         image_descriptions = [f"[Image {i+1}]" for i in range(len(images))]
         combined_prompt = f"{prompt}\n\nThe message includes {len(images)} images: {', '.join(image_descriptions)}"
-        
+
         payload = {
             "model": model,
             "messages": [
@@ -260,10 +314,10 @@ class OllamaClient:
                 "f16": True
             }
         }
-        
+
         logger.debug(f"Sending fallback vision chat request to Ollama: {model}")
         success, result = self._make_request(url, payload)
-        
+
         if success:
             if isinstance(result, dict) and "message" in result:
                 if isinstance(result["message"], dict) and "content" in result["message"]:
@@ -277,7 +331,7 @@ class OllamaClient:
             # If even the fallback fails, try the legacy method
             logger.warning("Fallback vision chat failed, trying legacy generate method")
             return self._generate_vision_legacy(model, prompt, images, max_tokens)
-    
+
     def _generate_vision_legacy(self, model: str, prompt: str, images: List[str], max_tokens: int = 4096) -> str:
         """Generate vision response using the legacy generate API"""
         url = f"{self.base_url}/api/generate"
@@ -291,9 +345,13 @@ class OllamaClient:
         # Format images for Ollama generate API
         formatted_images = []
         for img_base64 in images:
+            # Remove data:image/jpeg;base64, prefix if present
+            if "base64," in img_base64:
+                img_base64 = img_base64.split("base64,")[1]
+
             formatted_images.append({
                 "data": img_base64,
-                "mime_type": "image/jpeg"
+                "type": "image/jpeg"
             })
         
         payload = {
@@ -308,7 +366,7 @@ class OllamaClient:
             }
         }
         
-        logger.debug(f"Sending vision generate request to Ollama: {model} with {len(images)} images (max tokens: {adjusted_max_tokens})")
+        logger.info(f"Generating vision response with model: {model} with {len(images)} images")
         success, result = self._make_request(url, payload)
         
         if success:
