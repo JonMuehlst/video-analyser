@@ -218,11 +218,11 @@ def test_message_formatting():
         result = model("test message")
         assert "Received:" in result
         assert "test message" in result
-        
+                                
         # Test dict input
         result = model({"role": "user", "content": "dict message"})
         assert "dict message" in result
-        
+                                
         # Test list input
         result = model([
             {"role": "system", "content": "system prompt"},

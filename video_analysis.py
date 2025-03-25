@@ -631,16 +631,21 @@ class VisionAnalysisTool(Tool):
 
                     # Make API call
                     model_id = "claude-3-opus-20240229" if model_name == "claude" else model_name
+                    
+                    # Create the content array for the message
+                    message_content = [
+                        {"type": "text", "text": prompt}
+                    ]
+                    message_content.extend(images)
+                    
+                    # Make the API call with properly formatted content
                     response = self._anthropic_client.messages.create(
                         model=model_id,
                         max_tokens=4096,
                         messages=[
                             {
                                 "role": "user",
-                                "content": [
-                                    {"type": "text", "text": prompt},
-                                    *images
-                                ]
+                                "content": message_content
                             }
                         ]
                     )
@@ -1311,14 +1316,47 @@ def create_smolavision_agent(config: Dict[str, Any]):
                     if isinstance(messages, str):
                         formatted_messages.append({"role": "user", "content": messages})
                     elif isinstance(messages, list):
-                        for msg in messages:
-                            if isinstance(msg, str):
-                                formatted_messages.append({"role": "user", "content": msg})
-                            elif isinstance(msg, dict) and 'content' in msg:
-                                formatted_messages.append(msg)
+                        # Handle complex message formats like those from Anthropic
+                        if len(messages) == 1 and isinstance(messages[0], dict) and 'content' in messages[0]:
+                            content = messages[0]['content']
+                            # If content is a list (like Anthropic format), extract the text
+                            if isinstance(content, list):
+                                text_parts = []
+                                for item in content:
+                                    if isinstance(item, dict) and 'text' in item:
+                                        text_parts.append(item['text'])
+                                    elif isinstance(item, dict) and 'type' in item and item['type'] == 'text':
+                                        text_parts.append(item.get('text', ''))
+                                formatted_messages.append({
+                                    "role": messages[0].get('role', 'user'),
+                                    "content": ' '.join(text_parts)
+                                })
                             else:
-                                logger.warning(f"Skipping invalid message format: {msg}")
+                                formatted_messages.append(messages[0])
+                        else:
+                            # Standard message list processing
+                            for msg in messages:
+                                if isinstance(msg, str):
+                                    formatted_messages.append({"role": "user", "content": msg})
+                                elif isinstance(msg, dict) and 'content' in msg:
+                                    # Handle nested content structures
+                                    if isinstance(msg['content'], list):
+                                        text_parts = []
+                                        for item in msg['content']:
+                                            if isinstance(item, dict) and 'text' in item:
+                                                text_parts.append(item['text'])
+                                            elif isinstance(item, dict) and 'type' in item and item['type'] == 'text':
+                                                text_parts.append(item.get('text', ''))
+                                        formatted_messages.append({
+                                            "role": msg.get('role', 'user'),
+                                            "content": ' '.join(text_parts)
+                                        })
+                                    else:
+                                        formatted_messages.append(msg)
+                                else:
+                                    logger.warning(f"Skipping invalid message format: {msg}")
                     else:
+                        # Handle other types of input by converting to string
                         formatted_messages.append({"role": "user", "content": str(messages)})
                     
                     # Extract relevant parameters
