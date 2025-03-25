@@ -1329,7 +1329,15 @@ def create_smolavision_agent(config: Dict[str, Any]):
                     return f"Error calling Ollama API: {str(e)}"
 
             def __call__(self, messages, **kwargs):
-                # This matches the interface expected by smolagents
+                """Process messages and return a response from the Ollama model.
+
+                Args:
+                    messages: Either a string prompt or a list of message dictionaries
+                    **kwargs: Additional parameters like max_tokens, temperature, etc.
+
+                Returns:
+                    str: The model's response text
+                """
                 try:
                     # Format messages properly for Ollama
                     formatted_messages = []
@@ -1341,7 +1349,7 @@ def create_smolavision_agent(config: Dict[str, Any]):
                         for msg in messages:
                             if isinstance(msg, str):
                                 formatted_messages.append({"role": "user", "content": msg})
-                            elif isinstance(msg, dict):
+                            elif isinstance(msg, dict) and 'content' in msg:
                                 role = msg.get("role", "user")
                                 content = msg.get("content", "")
 
@@ -1373,44 +1381,66 @@ def create_smolavision_agent(config: Dict[str, Any]):
                     # Extract relevant parameters
                     max_tokens = kwargs.get("max_tokens", 4096)
                     temperature = kwargs.get("temperature", 0.7)
+                    stop_sequences = kwargs.get("stop_sequences", None)
 
-                    # Call Ollama API directly
+                    options = {
+                        "num_predict": max_tokens,
+                        "temperature": temperature,
+                        "stream": False
+                    }
+
+                    if stop_sequences:
+                        options["stop"] = stop_sequences
+
+                    # Log what we're about to send
+                    logger.debug(f"Calling Ollama API with model: {self.model_name}")
+                    logger.debug(f"Number of messages: {len(formatted_messages)}")
+
+                    # Call Ollama API
                     response = self.client.chat(
                         model=self.model_name,
                         messages=formatted_messages,
-                        options={
-                            "num_predict": max_tokens,
-                            "temperature": temperature,
-                            "stream": False
-                        }
+                        options=options
                     )
 
-                    # IMPORTANT: Always ensure we return a string
+                    # Log raw response type for debugging
+                    logger.debug(f"Raw Ollama response type: {type(response)}")
+                    if isinstance(response, str):
+                        logger.debug(f"String response from Ollama (first 100 chars): {response[:100]}")
+                    else:
+                        logger.debug(f"Non-string response from Ollama: {str(response)[:100]}")
+
+                    # Extract content from response with robust error handling
+                    # IMPORTANT: Always check for string first
                     if isinstance(response, str):
                         return response
 
-                    # Handle different response formats
-                    # Try the most common paths to content
+                    # Handle dictionary response
                     if isinstance(response, dict):
                         if 'message' in response:
                             message = response['message']
                             if isinstance(message, dict) and 'content' in message:
                                 return str(message['content'])
+                            # Handle case where message itself might be a string or other type
                             return str(message)
                         elif 'content' in response:
                             return str(response['content'])
                         elif 'response' in response:
                             return str(response['response'])
 
-                    # Try object attributes
+                    # Handle object with attributes
                     if hasattr(response, 'message'):
                         message = response.message
                         if hasattr(message, 'content'):
                             return str(message.content)
+                        # Handle case where message might not have content
                         return str(message)
 
                     if hasattr(response, 'content'):
                         return str(response.content)
+
+                    if hasattr(response, 'response'):
+                        return str(response.response)
 
                     # Last resort: convert to string
                     return str(response)
