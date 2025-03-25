@@ -5,6 +5,7 @@ Pillow>=9.0.0                  # Python Imaging Library for image processing
 smolagents>=0.1.0              # Agent architecture framework
 requests>=2.25.0               # HTTP requests for Ollama API
 python-dotenv>=0.19.0          # For loading environment variables
+ollama>=0.1.0                  # Python client for Ollama API
 
 # Local inference dependencies
 # No API keys needed when using Ollama
