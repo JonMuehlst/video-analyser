@@ -512,68 +512,83 @@ class VisionAnalysisTool(Tool):
 
             # Check if using Ollama
             if model_name == "ollama" or (ollama_config and ollama_config.get("enabled")):
-                # Use Ollama for local inference
-                base_url = ollama_config.get("base_url", "http://localhost:11434") if ollama_config else "http://localhost:11434"
-                vision_model = ollama_config.get("vision_model", "llava") if ollama_config else "llava"
-                
-                # Create or reuse Ollama client
                 try:
-                    if not hasattr(self, '_ollama_client') or self._ollama_client is None:
-                        self._ollama_client = OllamaClient(base_url=base_url)
-                    
-                    # For smaller GPUs, we need to be careful with batch size
-                    # Process images in smaller sub-batches if needed
-                    max_images_per_request = 3  # Limit for 12GB VRAM
-                except Exception as e:
-                    logger.error(f"Error initializing Ollama client: {str(e)}")
-                    return f"Error initializing Ollama client: {str(e)}"
-                
-                if len(batch) > max_images_per_request:
-                    logger.info(f"Batch size ({len(batch)}) exceeds max images per request ({max_images_per_request}). Processing in sub-batches.")
-                    
-                    # Process in sub-batches and combine results
-                    sub_batch_results = []
-                    for i in range(0, len(batch), max_images_per_request):
-                        sub_batch = batch[i:i + max_images_per_request]
+                    # Use Ollama for local inference
+                    base_url = ollama_config.get("base_url", "http://localhost:11434") if ollama_config else "http://localhost:11434"
+                    vision_model = ollama_config.get("vision_model", "llava") if ollama_config else "llava"
                         
-                        # Extract base64 images for this sub-batch
+                    # Create or reuse Ollama client
+                    try:
+                        if not hasattr(self, '_ollama_client') or self._ollama_client is None:
+                            self._ollama_client = OllamaClient(base_url=base_url)
+                            
+                        # For smaller GPUs, we need to be careful with batch size
+                        # Process images in smaller sub-batches if needed
+                        max_images_per_request = 3  # Limit for 12GB VRAM
+                    except Exception as e:
+                        logger.error(f"Error initializing Ollama client: {str(e)}")
+                        return f"Error initializing Ollama client: {str(e)}"
+                        
+                    if len(batch) > max_images_per_request:
+                        logger.info(f"Batch size ({len(batch)}) exceeds max images per request ({max_images_per_request}). Processing in sub-batches.")
+                            
+                        # Process in sub-batches and combine results
+                        sub_batch_results = []
+                        for i in range(0, len(batch), max_images_per_request):
+                            sub_batch = batch[i:i + max_images_per_request]
+                                
+                            # Extract base64 images for this sub-batch
+                            images = []
+                            for frame in sub_batch:
+                                base64_image = frame.get('base64_image', '')
+                                if base64_image and isinstance(base64_image, str):
+                                    images.append(base64_image)
+                                
+                            # Create a sub-prompt
+                            sub_prompt = f"Analyzing frames {i+1} to {i+len(sub_batch)} of {len(batch)}:\n{prompt}"
+                                
+                            try:
+                                # Call Ollama vision model for this sub-batch
+                                sub_result = self._ollama_client.generate_vision(
+                                    model=vision_model,
+                                    prompt=sub_prompt,
+                                    images=images,
+                                    max_tokens=2048  # Smaller token limit for sub-batches
+                                )
+                                    
+                                sub_batch_results.append(sub_result)
+                            except Exception as e:
+                                error_msg = f"Error processing sub-batch {i+1}: {str(e)}"
+                                logger.error(error_msg)
+                                sub_batch_results.append(error_msg)
+                            
+                        # Combine results
+                        analysis = "\n\n".join(sub_batch_results)
+                    else:
+                        # Process the whole batch at once
+                        # Extract base64 images for Ollama
                         images = []
-                        for frame in sub_batch:
+                        for frame in batch:
                             base64_image = frame.get('base64_image', '')
                             if base64_image and isinstance(base64_image, str):
                                 images.append(base64_image)
-                        
-                        # Create a sub-prompt
-                        sub_prompt = f"Analyzing frames {i+1} to {i+len(sub_batch)} of {len(batch)}:\n{prompt}"
-                        
-                        # Call Ollama vision model for this sub-batch
-                        sub_result = self._ollama_client.generate_vision(
-                            model=vision_model,
-                            prompt=sub_prompt,
-                            images=images,
-                            max_tokens=2048  # Smaller token limit for sub-batches
-                        )
-                        
-                        sub_batch_results.append(sub_result)
-                    
-                    # Combine results
-                    analysis = "\n\n".join(sub_batch_results)
-                else:
-                    # Process the whole batch at once
-                    # Extract base64 images for Ollama
-                    images = []
-                    for frame in batch:
-                        base64_image = frame.get('base64_image', '')
-                        if base64_image and isinstance(base64_image, str):
-                            images.append(base64_image)
-                    
-                    # Call Ollama vision model
-                    analysis = self._ollama_client.generate_vision(
-                        model=vision_model,
-                        prompt=prompt,
-                        images=images,
-                        max_tokens=4096
-                    )
+                            
+                        try:
+                            # Call Ollama vision model
+                            analysis = self._ollama_client.generate_vision(
+                                model=vision_model,
+                                prompt=prompt,
+                                images=images,
+                                max_tokens=4096
+                            )
+                        except Exception as e:
+                            error_msg = f"Error calling Ollama vision model: {str(e)}"
+                            logger.error(error_msg)
+                            analysis = error_msg
+                except Exception as e:
+                    error_msg = f"Error in Ollama vision processing: {str(e)}"
+                    logger.error(error_msg)
+                    analysis = error_msg
                 
             # Prepare images based on the model
             elif model_name.startswith("claude"):
@@ -1020,11 +1035,16 @@ VIDEO ANALYSIS (MIDDLE PART):
                     # Smaller models need smaller token limits
                     max_tokens = 2048 if "phi" in model or "gemma:2b" in model or "tiny" in model else 4096
                     
-                    chunk_summary = self._ollama_client.generate(
-                        model=model,
-                        prompt=prompt,
-                        max_tokens=max_tokens
-                    )
+                    try:
+                        chunk_summary = self._ollama_client.generate(
+                            model=model,
+                            prompt=prompt,
+                            max_tokens=max_tokens
+                        )
+                    except Exception as e:
+                        error_msg = f"Error calling Ollama API: {str(e)}"
+                        logger.error(error_msg)
+                        chunk_summary = error_msg
                 
                 # Call the LLM API based on model name
                 elif model_name.startswith("claude"):
@@ -1259,26 +1279,48 @@ def create_smolavision_agent(config: Dict[str, Any]):
             
             def generate(self, prompt, **kwargs):
                 try:
-                    # Format the prompt as a message
-                    if isinstance(prompt, str):
-                        messages = [{"role": "user", "content": prompt}]
-                    else:
-                        # Handle case where prompt is already a list of messages
-                        messages = [{"role": "user", "content": msg} if isinstance(msg, str) else msg for msg in prompt]
-                    
                     # Extract relevant parameters
                     max_tokens = kwargs.get("max_tokens", 4096)
                     temperature = kwargs.get("temperature", 0.7)
                     
-                    # Call Ollama API
-                    response = self.client.chat(
-                        model=self.model_name,
-                        messages=messages,
-                        options={
-                            "num_predict": max_tokens,
-                            "temperature": temperature
-                        }
-                    )
+                    # Handle different prompt formats
+                    if isinstance(prompt, str):
+                        # Simple string prompt
+                        response = self.client.chat(
+                            model=self.model_name,
+                            messages=[{"role": "user", "content": prompt}],
+                            options={
+                                "num_predict": max_tokens,
+                                "temperature": temperature
+                            }
+                        )
+                    elif isinstance(prompt, list):
+                        # Format messages properly
+                        messages = []
+                        for msg in prompt:
+                            if isinstance(msg, str):
+                                messages.append({"role": "user", "content": msg})
+                            elif isinstance(msg, dict) and "content" in msg:
+                                # Ensure content is a string
+                                if isinstance(msg["content"], str):
+                                    messages.append(msg)
+                                else:
+                                    # Convert complex content to string representation
+                                    msg_copy = msg.copy()
+                                    msg_copy["content"] = str(msg_copy["content"])
+                                    messages.append(msg_copy)
+                        
+                        # Call Ollama API with properly formatted messages
+                        response = self.client.chat(
+                            model=self.model_name,
+                            messages=messages,
+                            options={
+                                "num_predict": max_tokens,
+                                "temperature": temperature
+                            }
+                        )
+                    else:
+                        raise ValueError(f"Unsupported prompt type: {type(prompt)}")
                     
                     # Create a response object with content attribute
                     class Response:

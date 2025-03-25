@@ -129,6 +129,63 @@ class OllamaClient:
         Returns:
             Generated text response
         """
+        # First check if the model supports chat API (newer Ollama versions)
+        try:
+            # Try using the chat API first (preferred for newer Ollama versions)
+            return self._generate_vision_chat(model, prompt, images, max_tokens)
+        except Exception as e:
+            logger.warning(f"Chat API failed for vision model, falling back to generate API: {str(e)}")
+            # Fall back to the generate API
+            return self._generate_vision_legacy(model, prompt, images, max_tokens)
+    
+    def _generate_vision_chat(self, model: str, prompt: str, images: List[str], max_tokens: int = 4096) -> str:
+        """Generate vision response using the chat API (newer Ollama versions)"""
+        url = f"{self.base_url}/api/chat"
+        
+        # Adjust parameters based on model and number of images to prevent OOM errors
+        adjusted_max_tokens = max_tokens
+        if len(images) > 2:
+            # Reduce token limit for multiple images
+            adjusted_max_tokens = min(max_tokens, 2048)
+        
+        # Format images for Ollama chat API
+        content = [{"type": "text", "text": prompt}]
+        
+        for img_base64 in images:
+            content.append({
+                "type": "image",
+                "image": {
+                    "data": img_base64,
+                    "mime_type": "image/jpeg"
+                }
+            })
+        
+        payload = {
+            "model": model,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": content
+                }
+            ],
+            "stream": False,
+            "options": {
+                "num_predict": adjusted_max_tokens,
+                "gpu_layers": -1,  # Use all layers that fit on GPU
+                "f16": True        # Use half-precision for better memory usage
+            }
+        }
+        
+        logger.debug(f"Sending vision chat request to Ollama: {model} with {len(images)} images (max tokens: {adjusted_max_tokens})")
+        success, result = self._make_request(url, payload)
+        
+        if success:
+            return result.get("message", {}).get("content", "")
+        else:
+            return f"Error generating vision response with Ollama chat API: {result}"
+    
+    def _generate_vision_legacy(self, model: str, prompt: str, images: List[str], max_tokens: int = 4096) -> str:
+        """Generate vision response using the legacy generate API"""
         url = f"{self.base_url}/api/generate"
         
         # Adjust parameters based on model and number of images to prevent OOM errors
@@ -137,7 +194,7 @@ class OllamaClient:
             # Reduce token limit for multiple images
             adjusted_max_tokens = min(max_tokens, 2048)
         
-        # Format images for Ollama
+        # Format images for Ollama generate API
         formatted_images = []
         for img_base64 in images:
             formatted_images.append({
@@ -157,10 +214,10 @@ class OllamaClient:
             }
         }
         
-        logger.debug(f"Sending vision request to Ollama: {model} with {len(images)} images (max tokens: {adjusted_max_tokens})")
+        logger.debug(f"Sending vision generate request to Ollama: {model} with {len(images)} images (max tokens: {adjusted_max_tokens})")
         success, result = self._make_request(url, payload)
         
         if success:
             return result.get("response", "")
         else:
-            return f"Error generating vision response with Ollama: {result}"
+            return f"Error generating vision response with Ollama generate API: {result}"

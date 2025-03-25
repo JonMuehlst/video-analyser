@@ -18,9 +18,11 @@ def check_ollama_server(base_url="http://localhost:11434", max_retries=3):
         try:
             # Try using the ollama client library
             client = ollama.Client(host=base_url)
-            models = client.list()
-            print("✓ Connected to Ollama server successfully")
-            return True
+            # Just check connection without trying to list models
+            response = requests.get(f"{base_url}/api/tags", timeout=5)
+            if response.status_code == 200:
+                print("✓ Connected to Ollama server successfully")
+                return True
         except Exception as e:
             print(f"Attempt {attempt+1}/{max_retries}: Ollama server not responding at {base_url}")
             print(f"Error: {str(e)}")
