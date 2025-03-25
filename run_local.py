@@ -6,6 +6,7 @@ import os
 import sys
 import requests
 import time
+import ollama
 from video_analysis import run_smolavision
 from config import create_default_config
 
@@ -15,14 +16,14 @@ def check_ollama_server(base_url="http://localhost:11434", max_retries=3):
     
     for attempt in range(max_retries):
         try:
-            response = requests.get(f"{base_url}/api/tags", timeout=5)
-            if response.status_code == 200:
-                print("✓ Connected to Ollama server successfully")
-                return True
-        except requests.exceptions.ConnectionError:
-            print(f"Attempt {attempt+1}/{max_retries}: Ollama server not responding at {base_url}")
+            # Try using the ollama client library
+            client = ollama.Client(host=base_url)
+            models = client.list()
+            print("✓ Connected to Ollama server successfully")
+            return True
         except Exception as e:
-            print(f"Error checking Ollama connection: {str(e)}")
+            print(f"Attempt {attempt+1}/{max_retries}: Ollama server not responding at {base_url}")
+            print(f"Error: {str(e)}")
         
         if attempt < max_retries - 1:
             print("Waiting for Ollama server to start (5 seconds)...")
@@ -41,11 +42,12 @@ def check_required_models(base_url="http://localhost:11434"):
     available_models = []
     
     try:
-        response = requests.get(f"{base_url}/api/tags", timeout=5)
-        if response.status_code == 200:
-            available_models = [model["name"] for model in response.json().get("models", [])]
-    except Exception:
-        print("Could not check available models")
+        # Use the ollama client library
+        client = ollama.Client(host=base_url)
+        models_response = client.list()
+        available_models = [model["name"] for model in models_response.get("models", [])]
+    except Exception as e:
+        print(f"Could not check available models: {str(e)}")
         return False
     
     missing_models = [model for model in required_models if model not in available_models]
@@ -106,36 +108,36 @@ def main():
     
     # Check available models and set appropriate defaults
     try:
-        # Try to get available models
-        response = requests.get(f"{model_config.ollama.base_url}/api/tags", timeout=5)
-        if response.status_code == 200:
-            available_models = [model["name"] for model in response.json().get("models", [])]
-            
-            # Set text model based on availability
-            if "phi3:mini" in available_models:
-                model_config.ollama.model_name = "phi3:mini"
-            elif "llama3" in available_models:
-                model_config.ollama.model_name = "llama3"
-            else:
-                # Use the first available model as fallback
-                if available_models:
-                    model_config.ollama.model_name = available_models[0]
-                else:
-                    model_config.ollama.model_name = "phi3:mini"  # Default, will prompt to pull
-            
-            # Set vision model based on availability
-            if "llava" in available_models:
-                model_config.ollama.vision_model = "llava"
-            elif "bakllava:7b" in available_models:
-                model_config.ollama.vision_model = "bakllava:7b"
-            else:
-                # Use the first available vision model as fallback
-                vision_models = [m for m in available_models if "llava" in m.lower()]
-                if vision_models:
-                    model_config.ollama.vision_model = vision_models[0]
-                else:
-                    model_config.ollama.vision_model = "llava"  # Default, will prompt to pull
+        # Use the ollama client library to get available models
+        client = ollama.Client(host=model_config.ollama.base_url)
+        models_response = client.list()
+        available_models = [model["name"] for model in models_response.get("models", [])]
         
+        # Set text model based on availability
+        if "phi3:mini" in available_models:
+            model_config.ollama.model_name = "phi3:mini"
+        elif "llama3" in available_models:
+            model_config.ollama.model_name = "llama3"
+        else:
+            # Use the first available model as fallback
+            if available_models:
+                model_config.ollama.model_name = available_models[0]
+            else:
+                model_config.ollama.model_name = "phi3:mini"  # Default, will prompt to pull
+        
+        # Set vision model based on availability
+        if "llava" in available_models:
+            model_config.ollama.vision_model = "llava"
+        elif "bakllava:7b" in available_models:
+            model_config.ollama.vision_model = "bakllava:7b"
+        else:
+            # Use the first available vision model as fallback
+            vision_models = [m for m in available_models if "llava" in m.lower()]
+            if vision_models:
+                model_config.ollama.vision_model = vision_models[0]
+            else:
+                model_config.ollama.vision_model = "llava"  # Default, will prompt to pull
+    
     except Exception as e:
         print(f"Warning: Could not check available models: {str(e)}")
         # Use defaults from small_models
