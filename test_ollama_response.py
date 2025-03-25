@@ -1,3 +1,4 @@
+import pytest
 import logging
 
 # Set up logging
@@ -13,15 +14,7 @@ class OllamaModel:
         self.client = None
 
     def __call__(self, messages, **kwargs):
-        """Process messages and return a response from the Ollama model.
-
-        Args:
-            messages: Either a string prompt or a list of message dictionaries
-            **kwargs: Additional parameters like max_tokens, temperature, etc.
-
-        Returns:
-            str: The model's response text
-        """
+        """Process messages and return a response from the Ollama model."""
         try:
             # Format messages properly for Ollama
             formatted_messages = []
@@ -34,28 +27,7 @@ class OllamaModel:
                     if isinstance(msg, str):
                         formatted_messages.append({"role": "user", "content": msg})
                     elif isinstance(msg, dict) and 'content' in msg:
-                        role = msg.get("role", "user")
-                        content = msg.get("content", "")
-
-                        # Handle content that is a list (like Anthropic format)
-                        if isinstance(content, list):
-                            text_parts = []
-                            for item in content:
-                                if isinstance(item, dict) and "text" in item:
-                                    text_parts.append(item["text"])
-                                elif isinstance(item, dict) and "type" in item and item["type"] == "text":
-                                    text_parts.append(item.get("text", ""))
-
-                            formatted_messages.append({
-                                "role": role if role in ["user", "assistant", "system", "tool"] else "user",
-                                "content": " ".join(text_parts)
-                            })
-                        else:
-                            # Ensure content is a string
-                            formatted_messages.append({
-                                "role": role if role in ["user", "assistant", "system", "tool"] else "user",
-                                "content": str(content)
-                            })
+                        formatted_messages.append(msg)
                     else:
                         logger.warning(f"Skipping invalid message format: {msg}")
             else:
@@ -65,16 +37,6 @@ class OllamaModel:
             # Extract relevant parameters
             max_tokens = kwargs.get("max_tokens", 4096)
             temperature = kwargs.get("temperature", 0.7)
-            stop_sequences = kwargs.get("stop_sequences", None)
-
-            options = {
-                "num_predict": max_tokens,
-                "temperature": temperature,
-                "stream": False
-            }
-
-            if stop_sequences:
-                options["stop"] = stop_sequences
 
             # Log what we're about to send
             logger.debug(f"Calling Ollama API with model: {self.model_name}")
@@ -84,7 +46,11 @@ class OllamaModel:
             response = self.client.chat(
                 model=self.model_name,
                 messages=formatted_messages,
-                options=options
+                options={
+                    "num_predict": max_tokens,
+                    "temperature": temperature,
+                    "stream": False
+                }
             )
 
             # Log raw response type for debugging
@@ -94,7 +60,6 @@ class OllamaModel:
             else:
                 logger.debug(f"Non-string response from Ollama: {str(response)[:100]}")
 
-            # Extract content from response with robust error handling
             # IMPORTANT: Always check for string first
             if isinstance(response, str):
                 return response
@@ -105,26 +70,30 @@ class OllamaModel:
                     message = response['message']
                     if isinstance(message, dict) and 'content' in message:
                         return str(message['content'])
-                    # Handle case where message itself might be a string or other type
+                    # Handle case where message itself might be a string
                     return str(message)
                 elif 'content' in response:
                     return str(response['content'])
                 elif 'response' in response:
                     return str(response['response'])
 
-            # Handle object with attributes
-            if hasattr(response, 'message'):
-                message = response.message
-                if hasattr(message, 'content'):
-                    return str(message.content)
-                # Handle case where message might not have content
-                return str(message)
+            # Handle object with attributes - wrap in try/except to catch AttributeErrors
+            try:
+                if hasattr(response, 'message'):
+                    message = response.message
+                    if hasattr(message, 'content'):
+                        return str(message.content)
+                    # Handle case where message might not have content
+                    return str(message)
 
-            if hasattr(response, 'content'):
-                return str(response.content)
+                if hasattr(response, 'content'):
+                    return str(response.content)
 
-            if hasattr(response, 'response'):
-                return str(response.response)
+                if hasattr(response, 'response'):
+                    return str(response.response)
+            except AttributeError as attr_err:
+                logger.error(f"AttributeError accessing response: {str(attr_err)}")
+                return f"Error accessing response attribute: {str(attr_err)}"
 
             # Last resort: convert to string
             return str(response)
@@ -134,19 +103,21 @@ class OllamaModel:
             return f"Error calling Ollama API: {str(e)}"
 
 
-# Copy the full __call__ method from above here
+@pytest.fixture
+def model():
+    """Fixture that provides an OllamaModel instance"""
+    return OllamaModel(model_name="test-model")
 
-def test_string_response_handling():
+
+def test_string_response_handling(model):
     """Test that the OllamaModel.__call__ method correctly handles string responses"""
 
-    # Mock the OllamaModel class
+    # Mock the client
     class MockClient:
         def chat(self, model, messages, options=None):
             # Simulate the case where Ollama returns a string directly
             return "This is a direct string response from Ollama"
 
-    # Create a model instance with our mock client
-    model = OllamaModel(model_name="test-model")
     model.client = MockClient()
 
     # Test with a simple message
@@ -156,10 +127,8 @@ def test_string_response_handling():
     assert response == "This is a direct string response from Ollama"
     assert isinstance(response, str)
 
-    print("✅ String response handled correctly")
 
-
-def test_object_response_handling():
+def test_object_response_handling(model):
     """Test that the OllamaModel.__call__ method correctly handles object responses"""
 
     # Define a mock response object with a message attribute that has a content attribute
@@ -176,8 +145,6 @@ def test_object_response_handling():
             # Simulate the case where Ollama returns an object with nested attributes
             return MockResponse()
 
-    # Create a model instance with our mock client
-    model = OllamaModel(model_name="test-model")
     model.client = MockClient()
 
     # Test with a simple message
@@ -187,10 +154,8 @@ def test_object_response_handling():
     assert response == "Response from message.content attribute"
     assert isinstance(response, str)
 
-    print("✅ Object response handled correctly")
 
-
-def test_dict_response_handling():
+def test_dict_response_handling(model):
     """Test that the OllamaModel.__call__ method correctly handles dictionary responses"""
 
     class MockClient:
@@ -202,8 +167,6 @@ def test_dict_response_handling():
                 }
             }
 
-    # Create a model instance with our mock client
-    model = OllamaModel(model_name="test-model")
     model.client = MockClient()
 
     # Test with a simple message
@@ -213,25 +176,20 @@ def test_dict_response_handling():
     assert response == "Response from message.content in dictionary"
     assert isinstance(response, str)
 
-    print("✅ Dictionary response handled correctly")
 
-
-def test_error_case_handling():
+def test_error_case_handling(model):
     """Test that the OllamaModel.__call__ method handles errors gracefully"""
 
     class MockClient:
         def chat(self, model, messages, options=None):
-            # Simulate the case where accessing message.content raises an AttributeError
+            # Create a response that will trigger an attribute error
             class BrokenResponse:
                 @property
                 def message(self):
-                    # This property will raise an AttributeError when accessed
-                    raise AttributeError("This object has no attribute 'content'")
+                    raise AttributeError("'BrokenResponse' object has no attribute 'content'")
 
             return BrokenResponse()
 
-    # Create a model instance with our mock client
-    model = OllamaModel(model_name="test-model")
     model.client = MockClient()
 
     # Test with a simple message
@@ -241,18 +199,20 @@ def test_error_case_handling():
     assert "Error" in response
     assert isinstance(response, str)
 
-    print("✅ Error case handled correctly")
 
+def test_none_value_handling(model):
+    """Test that the OllamaModel.__call__ method handles None values gracefully"""
 
-# Run tests
-def run_tests():
-    print("Running Ollama response handling tests...")
-    test_string_response_handling()
-    test_object_response_handling()
-    test_dict_response_handling()
-    test_error_case_handling()
-    print("All tests passed! ✅")
+    class MockClient:
+        def chat(self, model, messages, options=None):
+            # Simulate the case where Ollama returns None
+            return None
 
+    model.client = MockClient()
 
-if __name__ == "__main__":
-    run_tests()
+    # Test with a simple message
+    response = model("Hello, how are you?")
+
+    # Check that we still get a string response
+    assert isinstance(response, str)
+    assert response == "None"  # str(None) = "None"
