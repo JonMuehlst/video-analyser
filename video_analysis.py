@@ -575,12 +575,27 @@ class VisionAnalysisTool(Tool):
                             
                         try:
                             # Call Ollama vision model
-                            analysis = self._ollama_client.generate_vision(
+                            response = self._ollama_client.generate_vision(
                                 model=vision_model,
                                 prompt=prompt,
                                 images=images,
                                 max_tokens=4096
                             )
+                            
+                            # Handle different response formats
+                            if isinstance(response, str):
+                                analysis = response
+                            elif hasattr(response, 'message') and hasattr(response.message, 'content'):
+                                analysis = response.message.content
+                            elif isinstance(response, dict) and 'message' in response:
+                                if isinstance(response['message'], dict) and 'content' in response['message']:
+                                    analysis = response['message']['content']
+                                elif hasattr(response['message'], 'content'):
+                                    analysis = response['message'].content
+                                else:
+                                    analysis = str(response)
+                            else:
+                                analysis = str(response)
                         except Exception as e:
                             error_msg = f"Error calling Ollama vision model: {str(e)}"
                             logger.error(error_msg)
@@ -1320,12 +1335,34 @@ def create_smolavision_agent(config: Dict[str, Any]):
                         }
                     )
                     
-                    # Handle response properly
-                    if isinstance(response, dict) and 'message' in response and 'content' in response['message']:
-                        return response['message']['content']
-                    else:
-                        logger.error(f"Unexpected response format from Ollama: {response}")
-                        return f"Error: Unexpected response format from Ollama"
+                    # Handle response properly - the format has changed in newer Ollama versions
+                    logger.debug(f"Raw response from Ollama: {response}")
+                    
+                    # Check for message attribute which might be a Message object in newer versions
+                    if hasattr(response, 'message') and hasattr(response.message, 'content'):
+                        return response.message.content
+                    # Check for dictionary format with message key
+                    elif isinstance(response, dict):
+                        if 'message' in response:
+                            if isinstance(response['message'], dict) and 'content' in response['message']:
+                                return response['message']['content']
+                            elif hasattr(response['message'], 'content'):
+                                return response['message'].content
+                    
+                    # If we get here, log the unexpected format but try to extract content anyway
+                    logger.error(f"Unexpected response format from Ollama: {response}")
+                    
+                    # Try to extract content from various possible formats
+                    if hasattr(response, 'content'):
+                        return response.content
+                    elif isinstance(response, dict) and 'content' in response:
+                        return response['content']
+                    elif isinstance(response, str):
+                        return response
+                    elif hasattr(response, '__str__'):
+                        return str(response)
+                    
+                    return f"Error: Unexpected response format from Ollama"
                 except Exception as e:
                     logger.error(f"Error in OllamaModel.__call__: {str(e)}")
                     return f"Error calling Ollama API: {str(e)}"

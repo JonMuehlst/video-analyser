@@ -18,11 +18,17 @@ def check_ollama_server(base_url="http://localhost:11434", max_retries=3):
         try:
             # Try using the ollama client library
             client = ollama.Client(host=base_url)
-            # Just check connection without trying to list models
-            response = requests.get(f"{base_url}/api/tags", timeout=5)
-            if response.status_code == 200:
+            # Try to list models to verify connection
+            try:
+                models_response = client.list()
                 print("✓ Connected to Ollama server successfully")
                 return True
+            except Exception:
+                # Fallback to direct API call if client.list() fails
+                response = requests.get(f"{base_url}/api/tags", timeout=5)
+                if response.status_code == 200:
+                    print("✓ Connected to Ollama server successfully")
+                    return True
         except Exception as e:
             print(f"Attempt {attempt+1}/{max_retries}: Ollama server not responding at {base_url}")
             print(f"Error: {str(e)}")
@@ -47,7 +53,32 @@ def check_required_models(base_url="http://localhost:11434"):
         # Use the ollama client library
         client = ollama.Client(host=base_url)
         models_response = client.list()
-        available_models = [model["name"] for model in models_response.get("models", [])]
+        
+        # Handle different response formats
+        if isinstance(models_response, dict) and 'models' in models_response:
+            # New format
+            if isinstance(models_response['models'], list):
+                if models_response['models'] and isinstance(models_response['models'][0], dict):
+                    # Try to extract model names based on available keys
+                    if 'name' in models_response['models'][0]:
+                        available_models = [m['name'] for m in models_response['models']]
+                    elif 'model' in models_response['models'][0]:
+                        available_models = [m['model'] for m in models_response['models']]
+                    else:
+                        # Just use the first key as identifier
+                        first_key = next(iter(models_response['models'][0]))
+                        available_models = [m.get(first_key, str(m)) for m in models_response['models']]
+        elif isinstance(models_response, list):
+            # Direct list format
+            if models_response and isinstance(models_response[0], dict):
+                if 'name' in models_response[0]:
+                    available_models = [m['name'] for m in models_response]
+                elif 'model' in models_response[0]:
+                    available_models = [m['model'] for m in models_response]
+                else:
+                    # Just use the first key as identifier
+                    first_key = next(iter(models_response[0]))
+                    available_models = [m.get(first_key, str(m)) for m in models_response]
     except Exception as e:
         print(f"Could not check available models: {str(e)}")
         return False
@@ -113,7 +144,33 @@ def main():
         # Use the ollama client library to get available models
         client = ollama.Client(host=model_config.ollama.base_url)
         models_response = client.list()
-        available_models = [model["name"] for model in models_response.get("models", [])]
+        
+        # Handle different response formats
+        available_models = []
+        if isinstance(models_response, dict) and 'models' in models_response:
+            # New format
+            if isinstance(models_response['models'], list):
+                if models_response['models'] and isinstance(models_response['models'][0], dict):
+                    # Try to extract model names based on available keys
+                    if 'name' in models_response['models'][0]:
+                        available_models = [m['name'] for m in models_response['models']]
+                    elif 'model' in models_response['models'][0]:
+                        available_models = [m['model'] for m in models_response['models']]
+                    else:
+                        # Just use the first key as identifier
+                        first_key = next(iter(models_response['models'][0]))
+                        available_models = [m.get(first_key, str(m)) for m in models_response['models']]
+        elif isinstance(models_response, list):
+            # Direct list format
+            if models_response and isinstance(models_response[0], dict):
+                if 'name' in models_response[0]:
+                    available_models = [m['name'] for m in models_response]
+                elif 'model' in models_response[0]:
+                    available_models = [m['model'] for m in models_response]
+                else:
+                    # Just use the first key as identifier
+                    first_key = next(iter(models_response[0]))
+                    available_models = [m.get(first_key, str(m)) for m in models_response]
         
         # Set text model based on availability
         if "phi3:mini" in available_models:
