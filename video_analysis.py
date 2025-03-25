@@ -1313,48 +1313,39 @@ def create_smolavision_agent(config: Dict[str, Any]):
                 try:
                     # Format messages properly for Ollama
                     formatted_messages = []
+                    
+                    # Handle different message formats
                     if isinstance(messages, str):
                         formatted_messages.append({"role": "user", "content": messages})
                     elif isinstance(messages, list):
-                        # Handle complex message formats like those from Anthropic
-                        if len(messages) == 1 and isinstance(messages[0], dict) and 'content' in messages[0]:
-                            content = messages[0]['content']
-                            # If content is a list (like Anthropic format), extract the text
-                            if isinstance(content, list):
-                                text_parts = []
-                                for item in content:
-                                    if isinstance(item, dict) and 'text' in item:
-                                        text_parts.append(item['text'])
-                                    elif isinstance(item, dict) and 'type' in item and item['type'] == 'text':
-                                        text_parts.append(item.get('text', ''))
-                                formatted_messages.append({
-                                    "role": messages[0].get('role', 'user'),
-                                    "content": ' '.join(text_parts)
-                                })
-                            else:
-                                formatted_messages.append(messages[0])
-                        else:
-                            # Standard message list processing
-                            for msg in messages:
-                                if isinstance(msg, str):
-                                    formatted_messages.append({"role": "user", "content": msg})
-                                elif isinstance(msg, dict) and 'content' in msg:
-                                    # Handle nested content structures
-                                    if isinstance(msg['content'], list):
-                                        text_parts = []
-                                        for item in msg['content']:
-                                            if isinstance(item, dict) and 'text' in item:
-                                                text_parts.append(item['text'])
-                                            elif isinstance(item, dict) and 'type' in item and item['type'] == 'text':
-                                                text_parts.append(item.get('text', ''))
-                                        formatted_messages.append({
-                                            "role": msg.get('role', 'user'),
-                                            "content": ' '.join(text_parts)
-                                        })
-                                    else:
-                                        formatted_messages.append(msg)
+                        for msg in messages:
+                            if isinstance(msg, str):
+                                formatted_messages.append({"role": "user", "content": msg})
+                            elif isinstance(msg, dict):
+                                role = msg.get("role", "user")
+                                content = msg.get("content", "")
+                                
+                                # Handle content that is a list (like Anthropic format)
+                                if isinstance(content, list):
+                                    text_parts = []
+                                    for item in content:
+                                        if isinstance(item, dict) and "text" in item:
+                                            text_parts.append(item["text"])
+                                        elif isinstance(item, dict) and "type" in item and item["type"] == "text":
+                                            text_parts.append(item.get("text", ""))
+                                    
+                                    formatted_messages.append({
+                                        "role": role if role in ["user", "assistant", "system", "tool"] else "user",
+                                        "content": " ".join(text_parts)
+                                    })
                                 else:
-                                    logger.warning(f"Skipping invalid message format: {msg}")
+                                    # Ensure content is a string
+                                    formatted_messages.append({
+                                        "role": role if role in ["user", "assistant", "system", "tool"] else "user",
+                                        "content": str(content)
+                                    })
+                            else:
+                                logger.warning(f"Skipping invalid message format: {msg}")
                     else:
                         # Handle other types of input by converting to string
                         formatted_messages.append({"role": "user", "content": str(messages)})
@@ -1369,38 +1360,41 @@ def create_smolavision_agent(config: Dict[str, Any]):
                         messages=formatted_messages,
                         options={
                             "num_predict": max_tokens,
-                            "temperature": temperature
+                            "temperature": temperature,
+                            "stream": False
                         }
                     )
                     
-                    # Handle response properly - the format has changed in newer Ollama versions
-                    logger.debug(f"Raw response from Ollama: {response}")
+                    # Create a simple string response - don't try to access .content attribute
+                    # This is the key fix for the 'str' object has no attribute 'content' error
                     
-                    # Check for message attribute which might be a Message object in newer versions
+                    # Handle different response formats
                     if hasattr(response, 'message') and hasattr(response.message, 'content'):
+                        # Object with message.content attribute
                         return response.message.content
-                    # Check for dictionary format with message key
                     elif isinstance(response, dict):
                         if 'message' in response:
                             if isinstance(response['message'], dict) and 'content' in response['message']:
+                                # Dictionary with message.content
                                 return response['message']['content']
                             elif hasattr(response['message'], 'content'):
+                                # Object with content attribute
                                 return response['message'].content
+                            else:
+                                # Message exists but no content - convert to string
+                                return str(response['message'])
                     
-                    # If we get here, log the unexpected format but try to extract content anyway
-                    logger.error(f"Unexpected response format from Ollama: {response}")
-                    
-                    # Try to extract content from various possible formats
+                    # Fallback options if we can't find content in expected places
                     if hasattr(response, 'content'):
                         return response.content
                     elif isinstance(response, dict) and 'content' in response:
                         return response['content']
                     elif isinstance(response, str):
                         return response
-                    elif hasattr(response, '__str__'):
-                        return str(response)
                     
-                    return f"Error: Unexpected response format from Ollama"
+                    # Last resort - convert whole response to string
+                    return str(response)
+                    
                 except Exception as e:
                     logger.error(f"Error in OllamaModel.__call__: {str(e)}")
                     return f"Error calling Ollama API: {str(e)}"
