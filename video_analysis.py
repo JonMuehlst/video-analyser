@@ -23,6 +23,7 @@ from io import BytesIO
 
 # Import smolagents
 from smolagents import CodeAgent, Tool, HfApiModel, LiteLLMModel
+import ollama
 
 # Import local modules
 from config import create_default_config, ModelConfig, VideoConfig
@@ -1248,20 +1249,57 @@ def create_smolavision_agent(config: Dict[str, Any]):
 
     # Choose the appropriate model interface based on model_type
     if model_type == "ollama":
-        # For Ollama, we'll use a local model through the API
-        # The actual Ollama calls are handled in the tools
-        # Create a minimal model implementation that doesn't require any API
-        class SimpleModel:
-            class Response:
-                def __init__(self, text):
-                    self.content = text
+        # For Ollama, create a proper Ollama model interface
+        class OllamaModel:
+            def __init__(self, model_name="llama3", base_url="http://localhost:11434"):
+                self.model_name = model_name
+                self.base_url = base_url
+                self.client = ollama.Client(host=base_url)
+                logger.info(f"Initialized OllamaModel with model: {model_name}")
             
             def generate(self, prompt, **kwargs):
-                # Return an object with content attribute to match expected structure
-                return self.Response("Fallback response. Processing done by Ollama tools.")
+                try:
+                    # Format the prompt as a message
+                    if isinstance(prompt, str):
+                        messages = [{"role": "user", "content": prompt}]
+                    else:
+                        # Handle case where prompt is already a list of messages
+                        messages = [{"role": "user", "content": msg} if isinstance(msg, str) else msg for msg in prompt]
+                    
+                    # Extract relevant parameters
+                    max_tokens = kwargs.get("max_tokens", 4096)
+                    temperature = kwargs.get("temperature", 0.7)
+                    
+                    # Call Ollama API
+                    response = self.client.chat(
+                        model=self.model_name,
+                        messages=messages,
+                        options={
+                            "num_predict": max_tokens,
+                            "temperature": temperature
+                        }
+                    )
+                    
+                    # Create a response object with content attribute
+                    class Response:
+                        def __init__(self, text):
+                            self.content = text
+                    
+                    return Response(response['message']['content'])
+                except Exception as e:
+                    logger.error(f"Error calling Ollama API: {str(e)}")
+                    # Return fallback response on error
+                    class Response:
+                        def __init__(self, text):
+                            self.content = text
+                    return Response(f"Error calling Ollama API: {str(e)}")
             
-            def __call__(self, prompt, **kwargs):
-                return self.generate(prompt, **kwargs)
+            def __call__(self, messages, **kwargs):
+                # This matches the interface expected by smolagents
+                if isinstance(messages, str):
+                    return self.generate(messages, **kwargs).content
+                else:
+                    return self.generate(messages, **kwargs).content
             
             # Required methods for smolagents compatibility
             def get_num_tokens(self, text):
@@ -1271,8 +1309,12 @@ def create_smolavision_agent(config: Dict[str, Any]):
             def get_max_tokens(self):
                 return 4096
         
-        model = SimpleModel()
-        logger.info("Using simple fallback model for agent (actual processing is done by Ollama tools)")
+        # Get model name from config
+        ollama_model_name = model_config.ollama.model_name if hasattr(model_config.ollama, "model_name") else "llama3"
+        ollama_base_url = model_config.ollama.base_url if hasattr(model_config.ollama, "base_url") else "http://localhost:11434"
+        
+        model = OllamaModel(model_name=ollama_model_name, base_url=ollama_base_url)
+        logger.info(f"Using Ollama model: {ollama_model_name} for agent")
     elif model_type == "anthropic":
         model = LiteLLMModel(model_id="anthropic/claude-3-opus-20240229", api_key=api_key)
     elif model_type == "openai":
