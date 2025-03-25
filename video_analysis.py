@@ -1296,10 +1296,7 @@ def create_smolavision_agent(config: Dict[str, Any]):
             
             def __call__(self, messages, **kwargs):
                 # This matches the interface expected by smolagents
-                if isinstance(messages, str):
-                    return self.generate(messages, **kwargs).content
-                else:
-                    return self.generate(messages, **kwargs).content
+                return self.generate(messages, **kwargs).content
             
             # Required methods for smolagents compatibility
             def get_num_tokens(self, text):
