@@ -71,7 +71,44 @@ def check_ollama_server():
     try:
         client = ollama.Client(host="http://localhost:11434")
         models = client.list()
-        available_models = [m['name'] for m in models.get('models', [])]
+        
+        # Debug the structure of the response
+        logger.info(f"Ollama models response structure: {models}")
+        
+        # Handle different response formats
+        if isinstance(models, dict) and 'models' in models:
+            # New format
+            if isinstance(models['models'], list):
+                if models['models'] and isinstance(models['models'][0], dict):
+                    # Try to extract model names based on available keys
+                    if 'name' in models['models'][0]:
+                        available_models = [m['name'] for m in models['models']]
+                    elif 'model' in models['models'][0]:
+                        available_models = [m['model'] for m in models['models']]
+                    else:
+                        # Just use the first key as identifier
+                        first_key = next(iter(models['models'][0]))
+                        available_models = [m.get(first_key, str(m)) for m in models['models']]
+                else:
+                    available_models = [str(m) for m in models['models']]
+            else:
+                available_models = ["<models format not recognized>"]
+        elif isinstance(models, list):
+            # Direct list format
+            if models and isinstance(models[0], dict):
+                if 'name' in models[0]:
+                    available_models = [m['name'] for m in models]
+                elif 'model' in models[0]:
+                    available_models = [m['model'] for m in models]
+                else:
+                    # Just use the first key as identifier
+                    first_key = next(iter(models[0]))
+                    available_models = [m.get(first_key, str(m)) for m in models]
+            else:
+                available_models = [str(m) for m in models]
+        else:
+            available_models = ["<unknown format>"]
+            
         logger.info(f"Connected to Ollama server, available models: {available_models}")
         return True
     except Exception as e:
@@ -108,7 +145,7 @@ def test_list_input(check_ollama_server, ollama_model):
     assert any(term in result.lower() for term in ["python", "programming", "language"]), \
         "Response should be about Python programming"
 
-def test_error_handling(check_ollama_server, ollama_model, monkeypatch):
+def test_error_handling(ollama_model, monkeypatch):
     """Test error handling when API call fails"""
     # Patch the client.chat method to raise an exception
     def mock_chat(*args, **kwargs):
@@ -118,3 +155,39 @@ def test_error_handling(check_ollama_server, ollama_model, monkeypatch):
     
     result = ollama_model("This should trigger an error")
     assert "Error" in result, "Response should contain error information"
+
+def test_message_formatting():
+    """Test message formatting without requiring Ollama server"""
+    model = OllamaModel()
+    
+    # Mock the client.chat method to just return the formatted messages
+    def mock_chat(model, messages, options=None):
+        return {"message": {"content": f"Received: {messages}"}}
+    
+    # Save original method
+    original_chat = model.client.chat
+    
+    try:
+        # Replace with mock
+        model.client.chat = mock_chat
+        
+        # Test string input
+        result = model("test message")
+        assert "Received:" in result
+        assert "test message" in result
+        
+        # Test dict input
+        result = model({"role": "user", "content": "dict message"})
+        assert "dict message" in result
+        
+        # Test list input
+        result = model([
+            {"role": "system", "content": "system prompt"},
+            {"role": "user", "content": "user message"}
+        ])
+        assert "system prompt" in result
+        assert "user message" in result
+        
+    finally:
+        # Restore original method
+        model.client.chat = original_chat
