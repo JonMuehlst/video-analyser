@@ -6,6 +6,7 @@ Test file for OllamaModel integration with smolagents
 import os
 import sys
 import logging
+import pytest
 import ollama
 
 # Configure logging
@@ -15,7 +16,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("OllamaModelTest")
 
-class TestOllamaModel:
+class OllamaModel:
     def __init__(self, model_name="llama3", base_url="http://localhost:11434"):
         self.model_name = model_name
         self.base_url = base_url
@@ -64,76 +65,56 @@ class TestOllamaModel:
             logger.error(f"Error in OllamaModel.__call__: {str(e)}")
             return f"Error calling Ollama API: {str(e)}"
 
-def test_string_input():
+@pytest.fixture
+def check_ollama_server():
+    """Fixture to check if Ollama server is running"""
+    try:
+        client = ollama.Client(host="http://localhost:11434")
+        models = client.list()
+        available_models = [m['name'] for m in models.get('models', [])]
+        logger.info(f"Connected to Ollama server, available models: {available_models}")
+        return True
+    except Exception as e:
+        logger.error(f"Error connecting to Ollama server: {e}")
+        pytest.skip("Ollama server not available. Please make sure Ollama is installed and running.")
+
+@pytest.fixture
+def ollama_model():
+    """Fixture to create an OllamaModel instance"""
+    return OllamaModel()
+
+def test_string_input(check_ollama_server, ollama_model):
     """Test with a simple string input"""
-    model = TestOllamaModel()
-    result = model("Hello, how are you?")
-    print(f"String input result: {result}")
+    result = ollama_model("Hello, how are you?")
     assert isinstance(result, str), "Result should be a string"
-    return True
+    assert len(result) > 0, "Response should not be empty"
 
-def test_dict_input():
+def test_dict_input(check_ollama_server, ollama_model):
     """Test with a dictionary input"""
-    model = TestOllamaModel()
-    result = model({"role": "user", "content": "What is the capital of France?"})
-    print(f"Dict input result: {result}")
+    result = ollama_model({"role": "user", "content": "What is the capital of France?"})
     assert isinstance(result, str), "Result should be a string"
-    return True
+    assert len(result) > 0, "Response should not be empty"
+    assert "Paris" in result.lower(), "Response should mention Paris as the capital of France"
 
-def test_list_input():
+def test_list_input(check_ollama_server, ollama_model):
     """Test with a list of messages"""
-    model = TestOllamaModel()
     messages = [
         {"role": "system", "content": "You are a helpful assistant."},
         {"role": "user", "content": "Tell me about Python programming."}
     ]
-    result = model(messages)
-    print(f"List input result: {result}")
+    result = ollama_model(messages)
     assert isinstance(result, str), "Result should be a string"
-    return True
+    assert len(result) > 0, "Response should not be empty"
+    assert any(term in result.lower() for term in ["python", "programming", "language"]), \
+        "Response should be about Python programming"
 
-def main():
-    """Run all tests"""
-    print("Testing OllamaModel integration with smolagents")
+def test_error_handling(check_ollama_server, ollama_model, monkeypatch):
+    """Test error handling when API call fails"""
+    # Patch the client.chat method to raise an exception
+    def mock_chat(*args, **kwargs):
+        raise Exception("Simulated API error")
     
-    try:
-        # Check if Ollama server is running
-        client = ollama.Client(host="http://localhost:11434")
-        models = client.list()
-        print(f"Connected to Ollama server, available models: {[m['name'] for m in models.get('models', [])]}")
-    except Exception as e:
-        print(f"Error connecting to Ollama server: {e}")
-        print("Please make sure Ollama is installed and running")
-        return False
+    monkeypatch.setattr(ollama_model.client, "chat", mock_chat)
     
-    # Run tests
-    tests = [
-        ("String input test", test_string_input),
-        ("Dict input test", test_dict_input),
-        ("List input test", test_list_input)
-    ]
-    
-    all_passed = True
-    for test_name, test_func in tests:
-        print(f"\nRunning test: {test_name}")
-        try:
-            result = test_func()
-            if result:
-                print(f"✓ {test_name} PASSED")
-            else:
-                print(f"✗ {test_name} FAILED")
-                all_passed = False
-        except Exception as e:
-            print(f"✗ {test_name} ERROR: {str(e)}")
-            all_passed = False
-    
-    if all_passed:
-        print("\nAll tests PASSED! The OllamaModel integration should work correctly.")
-    else:
-        print("\nSome tests FAILED. Please check the error messages above.")
-    
-    return all_passed
-
-if __name__ == "__main__":
-    success = main()
-    sys.exit(0 if success else 1)
+    result = ollama_model("This should trigger an error")
+    assert "Error" in result, "Response should contain error information"
