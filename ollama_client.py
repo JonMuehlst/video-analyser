@@ -318,42 +318,16 @@ class OllamaClient:
         logger.info(f"Generating vision response with model: {model} with {len(images)} images")
         success, result = self._make_request(url, payload)
 
+        # Log the response type for debugging
+        logger.debug(f"Raw Ollama vision API response type: {type(result)}")
+        if isinstance(result, str):
+            logger.debug(f"String response from Ollama vision API (first 100 chars): {result[:100]}")
+        else:
+            logger.debug(f"Non-string vision API response: {str(result)[:100]}")
+
         if success:
-            # IMPORTANT: Always ensure we return a string
-            if isinstance(result, str):
-                return result
-
-            # If it's a dict with a response key (typical for generate API)
-            if isinstance(result, dict) and "response" in result:
-                return str(result["response"])
-
-            # Extract content from any response format using our helper
-            if hasattr(self, '_extract_content_safely'):
-                return self._extract_content_safely(result)
-
-            # Fallback if _extract_content_safely doesn't exist
-            try:
-                # Try different paths to content
-                if isinstance(result, dict):
-                    if 'message' in result:
-                        if isinstance(result['message'], dict) and 'content' in result['message']:
-                            return str(result['message']['content'])
-                        return str(result['message'])
-                    return str(result)
-
-                if hasattr(result, 'message'):
-                    if hasattr(result.message, 'content'):
-                        return str(result.message.content)
-                    return str(result.message)
-
-                if hasattr(result, 'content'):
-                    return str(result.content)
-
-                # Last resort: convert to string
-                return str(result)
-            except Exception as e:
-                logger.error(f"Error extracting content: {str(e)}")
-                return f"Error: {str(e)}"
+            # Always use our safe extraction helper to handle any response format
+            return self._extract_content_safely(result)
         else:
             return f"Error generating vision response with Ollama: {result}"
 
