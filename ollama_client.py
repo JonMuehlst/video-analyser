@@ -49,7 +49,71 @@ class OllamaClient:
         except Exception as e:
             logger.error(f"Error listing Ollama models: {str(e)}")
             return []
-    
+
+    def _extract_content_safely(self, response: Any, default_message: str = "No content") -> str:
+        """Safely extract content from various Ollama response formats
+
+        This helper handles all known response formats from different Ollama versions
+        and ensures a string is always returned.
+
+        Args:
+            response: The response object from Ollama
+            default_message: Message to return if no content can be extracted
+
+        Returns:
+            Extracted content as a string
+        """
+        try:
+            # Log response type for debugging
+            logger.debug(f"Extracting content from response type: {type(response)}")
+
+            # If it's already a string, return it
+            if isinstance(response, str):
+                return response
+
+            # Handle dictionary response
+            if isinstance(response, dict):
+                # Try message.content path
+                if 'message' in response:
+                    message = response['message']
+                    if isinstance(message, dict) and 'content' in message:
+                        return str(message['content'])
+                    return str(message)  # Just return message as string
+
+                # Try direct content
+                if 'content' in response:
+                    return str(response['content'])
+
+                # Try response field (common in generate API)
+                if 'response' in response:
+                    return str(response['response'])
+
+            # Handle object with attributes
+            if hasattr(response, 'message'):
+                message = response.message
+                if hasattr(message, 'content'):
+                    return str(message.content)
+                return str(message)
+
+            # Try direct content attribute
+            if hasattr(response, 'content'):
+                return str(response.content)
+
+            # Try response attribute
+            if hasattr(response, 'response'):
+                return str(response.response)
+
+            # Last resort: convert entire response to string
+            result = str(response)
+            if result and result != '{}':
+                return result
+
+            return default_message
+
+        except Exception as e:
+            logger.error(f"Error extracting content: {str(e)}")
+            return f"Error extracting content: {str(e)}"
+
     def _make_request(self, url: str, payload: Dict[str, Any], 
                      retries: int = 3, retry_delay: float = 2.0) -> Tuple[bool, Union[Dict[str, Any], str]]:
         """Make a request to Ollama API with retries"""
