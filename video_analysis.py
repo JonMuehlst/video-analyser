@@ -527,8 +527,6 @@ class VisionAnalysisTool(Tool):
             if model_name == "ollama" or (ollama_config and ollama_config.get("enabled")):
                 try:
                     # Use LiteLLM for Ollama vision model
-                    from smolagents import LiteLLMModel
-                        
                     base_url = ollama_config.get("base_url", "http://localhost:11434") if ollama_config else "http://localhost:11434"
                     vision_model = ollama_config.get("vision_model", "llava") if ollama_config else "llava"
                         
@@ -1110,8 +1108,6 @@ VIDEO ANALYSIS (MIDDLE PART):
                 if model_name == "ollama" or (ollama_config and ollama_config.get("enabled")):
                     try:
                         # Use LiteLLM for Ollama
-                        from smolagents import LiteLLMModel
-                        
                         base_url = ollama_config.get("base_url", "http://localhost:11434") if ollama_config else "http://localhost:11434"
                         model = ollama_config.get("model_name", "llama3") if ollama_config else "llama3"
                         

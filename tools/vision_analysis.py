@@ -7,7 +7,7 @@ import os
 import logging
 from typing import List, Dict, Any, Optional
 
-from smolagents import Tool
+from smolagents import Tool, LiteLLMModel
 
 # Configure logging
 logger = logging.getLogger("SmolaVision")
@@ -93,8 +93,6 @@ class VisionAnalysisTool(Tool):
             if model_name == "ollama" or (ollama_config and ollama_config.get("enabled")):
                 try:
                     # Use LiteLLM for Ollama vision model
-                    from smolagents import LiteLLMModel
-                        
                     base_url = ollama_config.get("base_url", "http://localhost:11434")
                     vision_model = ollama_config.get("vision_model", "llava")
                         
