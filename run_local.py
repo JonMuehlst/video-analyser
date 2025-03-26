@@ -155,57 +155,77 @@ def check_ollama_server(base_url="http://localhost:11434", max_retries=3):
 
 def check_required_models(base_url="http://localhost:11434"):
     """Check if required models are available and suggest pulling them if not"""
-    required_models = ["llava", "phi3:mini"]
+    # Define alternative models for each category
+    text_models = ["phi3:mini", "llama3", "mistral:7b", "gemma:2b", "tinyllama:1.1b"]
+    vision_models = ["llava", "bakllava:7b", "llava:7b", "llava:13b"]
+    
     available_models = []
 
     try:
-        # Use the ollama client library
-        client = ollama.Client(host=base_url)
-        models_response = client.list()
+        # Use direct API call (more reliable)
+        import requests
+        response = requests.get(f"{base_url}/api/tags", timeout=5)
+        if response.status_code == 200:
+            available_models = [m["name"] for m in response.json().get("models", [])]
+        else:
+            # Fallback to using the ollama client library
+            client = ollama.Client(host=base_url)
+            models_response = client.list()
 
-        # Handle different response formats
-        if isinstance(models_response, dict) and 'models' in models_response:
-            # New format
-            if isinstance(models_response['models'], list):
-                if models_response['models'] and isinstance(models_response['models'][0], dict):
-                    # Try to extract model names based on available keys
-                    if 'name' in models_response['models'][0]:
-                        available_models = [m['name'] for m in models_response['models']]
-                    elif 'model' in models_response['models'][0]:
-                        available_models = [m['model'] for m in models_response['models']]
+            # Handle different response formats
+            if isinstance(models_response, dict) and 'models' in models_response:
+                # New format
+                if isinstance(models_response['models'], list):
+                    if models_response['models'] and isinstance(models_response['models'][0], dict):
+                        # Try to extract model names based on available keys
+                        if 'name' in models_response['models'][0]:
+                            available_models = [m['name'] for m in models_response['models']]
+                        elif 'model' in models_response['models'][0]:
+                            available_models = [m['model'] for m in models_response['models']]
+                        else:
+                            # Just use the first key as identifier
+                            first_key = next(iter(models_response['models'][0]))
+                            available_models = [m.get(first_key, str(m)) for m in models_response['models']]
+            elif isinstance(models_response, list):
+                # Direct list format
+                if models_response and isinstance(models_response[0], dict):
+                    if 'name' in models_response[0]:
+                        available_models = [m['name'] for m in models_response]
+                    elif 'model' in models_response[0]:
+                        available_models = [m['model'] for m in models_response]
                     else:
                         # Just use the first key as identifier
-                        first_key = next(iter(models_response['models'][0]))
-                        available_models = [m.get(first_key, str(m)) for m in models_response['models']]
-        elif isinstance(models_response, list):
-            # Direct list format
-            if models_response and isinstance(models_response[0], dict):
-                if 'name' in models_response[0]:
-                    available_models = [m['name'] for m in models_response]
-                elif 'model' in models_response[0]:
-                    available_models = [m['model'] for m in models_response]
-                else:
-                    # Just use the first key as identifier
-                    first_key = next(iter(models_response[0]))
-                    available_models = [m.get(first_key, str(m)) for m in models_response]
+                        first_key = next(iter(models_response[0]))
+                        available_models = [m.get(first_key, str(m)) for m in models_response]
     except Exception as e:
         print(f"Could not check available models: {str(e)}")
         return False
 
-    missing_models = [model for model in required_models if model not in available_models]
+    # Check if we have at least one text model and one vision model
+    has_text_model = any(model in available_models for model in text_models)
+    has_vision_model = any(model in available_models for model in vision_models)
+    
+    missing_categories = []
+    if not has_text_model:
+        missing_categories.append(("text model", text_models))
+    if not has_vision_model:
+        missing_categories.append(("vision model", vision_models))
 
-    if missing_models:
-        print("\nSome required models are not available locally:")
-        for model in missing_models:
-            print(f"  - {model}")
+    if missing_categories:
+        print("\nSome required model types are not available locally:")
+        for category, models in missing_categories:
+            print(f"  - Missing {category}. Need at least one of: {', '.join(models)}")
 
         print("\nYou can pull these models with the following commands:")
-        for model in missing_models:
-            print(f"  ollama pull {model}")
+        for category, models in missing_categories:
+            # Suggest the smallest model in each category
+            suggested_model = models[0]
+            print(f"  ollama pull {suggested_model}  # {category}")
         print()
 
         return False
 
+    print(f"Available models: {', '.join(available_models)}")
     return True
 
 def main():
@@ -289,61 +309,82 @@ def main():
 
     # Check available models and set appropriate defaults
     try:
-        # Use the ollama client library to get available models
-        client = ollama.Client(host=model_config.ollama.base_url)
-        models_response = client.list()
-
-        # Handle different response formats
+        # Use direct API call (more reliable)
+        import requests
+        response = requests.get(f"{model_config.ollama.base_url}/api/tags", timeout=5)
+        
         available_models = []
-        if isinstance(models_response, dict) and 'models' in models_response:
-            # New format
-            if isinstance(models_response['models'], list):
-                if models_response['models'] and isinstance(models_response['models'][0], dict):
-                    # Try to extract model names based on available keys
-                    if 'name' in models_response['models'][0]:
-                        available_models = [m['name'] for m in models_response['models']]
-                    elif 'model' in models_response['models'][0]:
-                        available_models = [m['model'] for m in models_response['models']]
+        if response.status_code == 200:
+            available_models = [m["name"] for m in response.json().get("models", [])]
+        else:
+            # Fallback to using the ollama client library
+            client = ollama.Client(host=model_config.ollama.base_url)
+            models_response = client.list()
+
+            # Handle different response formats
+            if isinstance(models_response, dict) and 'models' in models_response:
+                # New format
+                if isinstance(models_response['models'], list):
+                    if models_response['models'] and isinstance(models_response['models'][0], dict):
+                        # Try to extract model names based on available keys
+                        if 'name' in models_response['models'][0]:
+                            available_models = [m['name'] for m in models_response['models']]
+                        elif 'model' in models_response['models'][0]:
+                            available_models = [m['model'] for m in models_response['models']]
+                        else:
+                            # Just use the first key as identifier
+                            first_key = next(iter(models_response['models'][0]))
+                            available_models = [m.get(first_key, str(m)) for m in models_response['models']]
+            elif isinstance(models_response, list):
+                # Direct list format
+                if models_response and isinstance(models_response[0], dict):
+                    if 'name' in models_response[0]:
+                        available_models = [m['name'] for m in models_response]
+                    elif 'model' in models_response[0]:
+                        available_models = [m['model'] for m in models_response]
                     else:
                         # Just use the first key as identifier
-                        first_key = next(iter(models_response['models'][0]))
-                        available_models = [m.get(first_key, str(m)) for m in models_response['models']]
-        elif isinstance(models_response, list):
-            # Direct list format
-            if models_response and isinstance(models_response[0], dict):
-                if 'name' in models_response[0]:
-                    available_models = [m['name'] for m in models_response]
-                elif 'model' in models_response[0]:
-                    available_models = [m['model'] for m in models_response]
-                else:
-                    # Just use the first key as identifier
-                    first_key = next(iter(models_response[0]))
-                    available_models = [m.get(first_key, str(m)) for m in models_response]
+                        first_key = next(iter(models_response[0]))
+                        available_models = [m.get(first_key, str(m)) for m in models_response]
 
+        # Define model categories
+        text_models = ["phi3:mini", "llama3", "mistral:7b", "gemma:2b", "tinyllama:1.1b"]
+        vision_models = ["llava", "bakllava:7b", "llava:7b", "llava:13b"]
+        
         # Set text model based on availability
-        if "phi3:mini" in available_models:
-            model_config.ollama.model_name = "phi3:mini"
-        elif "llama3" in available_models:
-            model_config.ollama.model_name = "llama3"
-        else:
+        text_model_found = False
+        for preferred_model in text_models:
+            if preferred_model in available_models:
+                model_config.ollama.model_name = preferred_model
+                text_model_found = True
+                break
+                
+        if not text_model_found:
             # Use the first available model as fallback
             if available_models:
                 model_config.ollama.model_name = available_models[0]
+                print(f"No preferred text models found. Using {available_models[0]} instead.")
             else:
                 model_config.ollama.model_name = "phi3:mini"  # Default, will prompt to pull
+                print("No models found. Will try to use phi3:mini (needs to be pulled).")
 
-        # Set vision model based on availability
-        if "llava" in available_models:
-            model_config.ollama.vision_model = "llava"
-        elif "bakllava:7b" in available_models:
-            model_config.ollama.vision_model = "bakllava:7b"
-        else:
+        # Set vision model based on availability - prioritize llava
+        vision_model_found = False
+        for preferred_model in vision_models:
+            if preferred_model in available_models:
+                model_config.ollama.vision_model = preferred_model
+                vision_model_found = True
+                break
+                
+        if not vision_model_found:
             # Use the first available vision model as fallback
-            vision_models = [m for m in available_models if "llava" in m.lower()]
-            if vision_models:
-                model_config.ollama.vision_model = vision_models[0]
+            vision_models_available = [m for m in available_models if "llava" in m.lower()]
+            if vision_models_available:
+                model_config.ollama.vision_model = vision_models_available[0]
+                print(f"Using vision model: {vision_models_available[0]}")
             else:
                 model_config.ollama.vision_model = "llava"  # Default, will prompt to pull
+                print("No vision models found. Will try to use llava (needs to be pulled).")
 
     except Exception as e:
         print(f"Warning: Could not check available models: {str(e)}")
