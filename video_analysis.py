@@ -526,102 +526,136 @@ class VisionAnalysisTool(Tool):
             # Check if using Ollama
             if model_name == "ollama" or (ollama_config and ollama_config.get("enabled")):
                 try:
-                    # Use Ollama for local inference
+                    # Use LiteLLM for Ollama vision model
+                    from smolagents import LiteLLMModel
+                        
                     base_url = ollama_config.get("base_url", "http://localhost:11434") if ollama_config else "http://localhost:11434"
                     vision_model = ollama_config.get("vision_model", "llava") if ollama_config else "llava"
-
-                    # Create or reuse Ollama client
+                        
+                    # Check if Ollama is running
                     try:
-                        if not hasattr(self, '_ollama_client') or self._ollama_client is None:
-                            self._ollama_client = OllamaClient(base_url=base_url)
-
-                        # For smaller GPUs, we need to be careful with batch size
-                        # Process images in smaller sub-batches if needed
-                        max_images_per_request = 3  # Limit for 12GB VRAM
+                        import requests
+                        response = requests.get(f"{base_url}/api/tags", timeout=5)
+                        if response.status_code != 200:
+                            return f"Error: Cannot connect to Ollama at {base_url}. Please make sure Ollama is running with 'ollama serve'"
+                            
+                        # Check if the vision model is available
+                        available_models = [m["name"] for m in response.json().get("models", [])]
+                        if vision_model not in available_models:
+                            return f"Error: Vision model '{vision_model}' not available in Ollama. Please pull it with 'ollama pull {vision_model}'"
                     except Exception as e:
-                        logger.error(f"Error initializing Ollama client: {str(e)}")
-                        return f"Error initializing Ollama client: {str(e)}"
-
+                        return f"Error connecting to Ollama: {str(e)}"
+                        
+                    # Format model name for LiteLLM
+                    litellm_vision_model = f"ollama/{vision_model}"
+                        
+                    # Create LiteLLM model for vision
+                    litellm_model = LiteLLMModel(
+                        model_id=litellm_vision_model,
+                        api_base=base_url,
+                        api_key="ollama",  # Placeholder, not used by Ollama
+                        temperature=0.7,
+                        max_tokens=4096,
+                        request_timeout=120,  # Longer timeout for vision models
+                    )
+                        
+                    # For smaller GPUs, we need to be careful with batch size
+                    max_images_per_request = 3  # Limit for 12GB VRAM
+                        
+                    # Adjust based on model size
+                    if "tiny" in vision_model or "1b" in vision_model:
+                        max_images_per_request = 6  # Smaller models can handle more images
+                    elif "7b" in vision_model:
+                        max_images_per_request = 3  # Medium models
+                    else:
+                        max_images_per_request = 2  # Larger models need smaller batches
+                        
                     if len(batch) > max_images_per_request:
                         logger.info(f"Batch size ({len(batch)}) exceeds max images per request ({max_images_per_request}). Processing in sub-batches.")
-
+                            
                         # Process in sub-batches and combine results
                         sub_batch_results = []
                         for i in range(0, len(batch), max_images_per_request):
                             sub_batch = batch[i:i + max_images_per_request]
-
+                                
                             # Extract base64 images for this sub-batch
                             images = []
                             for frame in sub_batch:
                                 base64_image = frame.get('base64_image', '')
                                 if base64_image and isinstance(base64_image, str):
                                     images.append(base64_image)
-
+                                
                             # Create a sub-prompt
                             sub_prompt = f"Analyzing frames {i+1} to {i+len(sub_batch)} of {len(batch)}:\n{prompt}"
-
+                                
                             try:
-                                # Call Ollama vision model for this sub-batch
-                                sub_result = self._ollama_client.generate_vision(
-                                    model=vision_model,
-                                    prompt=sub_prompt,
-                                    images=images,
-                                    max_tokens=2048  # Smaller token limit for sub-batches
-                                )
-
+                                # Format messages for vision model with images
+                                message_content = [{"type": "text", "text": sub_prompt}]
+                                    
+                                # Add images to the content
+                                for base64_image in images:
+                                    if base64_image and isinstance(base64_image, str):
+                                        # Ensure proper formatting with data URI
+                                        if not base64_image.startswith("data:"):
+                                            image_url = f"data:image/jpeg;base64,{base64_image}"
+                                        else:
+                                            image_url = base64_image
+                                                
+                                        message_content.append({
+                                            "type": "image_url",
+                                            "image_url": {"url": image_url}
+                                        })
+                                    
+                                messages = [{"role": "user", "content": message_content}]
+                                    
+                                # Call the LiteLLM model
+                                sub_result = litellm_model(messages)
                                 sub_batch_results.append(sub_result)
+                                    
                             except Exception as e:
                                 error_msg = f"Error processing sub-batch {i+1}: {str(e)}"
                                 logger.error(error_msg)
                                 sub_batch_results.append(error_msg)
-
+                            
                         # Combine results
                         analysis = "\n\n".join(sub_batch_results)
                     else:
                         # Process the whole batch at once
-                        # Extract base64 images for Ollama
+                        # Extract base64 images
                         images = []
                         for frame in batch:
                             base64_image = frame.get('base64_image', '')
                             if base64_image and isinstance(base64_image, str):
                                 images.append(base64_image)
-
-                        try:
-                            # Call Ollama vision model
-                            result = self._ollama_client.generate_vision(
-                                model=vision_model,
-                                prompt=prompt,
-                                images=images,
-                                max_tokens=4096
-                            )
-
-                            # Always ensure result is a string
-                            if not isinstance(result, str):
-                                # Try to extract content from various possible formats
-                                if hasattr(result, 'message') and hasattr(result.message, 'content'):
-                                    analysis = str(result.message.content)
-                                elif isinstance(result, dict) and 'message' in result:
-                                    if isinstance(result['message'], dict) and 'content' in result['message']:
-                                        analysis = str(result['message']['content'])
-                                    else:
-                                        analysis = str(result['message'])
-                                elif hasattr(result, 'content'):
-                                    analysis = str(result.content)
-                                elif isinstance(result, dict) and 'content' in result:
-                                    analysis = str(result['content'])
-                                elif isinstance(result, dict) and 'response' in result:
-                                    analysis = str(result['response'])
+                            
+                        # Format messages for vision model with images
+                        message_content = [{"type": "text", "text": prompt}]
+                            
+                        # Add images to the content
+                        for base64_image in images:
+                            if base64_image and isinstance(base64_image, str):
+                                # Ensure proper formatting with data URI
+                                if not base64_image.startswith("data:"):
+                                    image_url = f"data:image/jpeg;base64,{base64_image}"
                                 else:
-                                    # Last resort: convert to string
-                                    analysis = str(result)
-                            else:
-                                analysis = result
+                                    image_url = base64_image
+                                        
+                                message_content.append({
+                                    "type": "image_url",
+                                    "image_url": {"url": image_url}
+                                })
+                            
+                        messages = [{"role": "user", "content": message_content}]
+                            
+                        try:
+                            # Call the LiteLLM model
+                            analysis = litellm_model(messages)
                         except Exception as e:
-                            error_msg = f"Error calling Ollama vision model: {str(e)}"
+                            error_msg = f"Error calling LiteLLM vision model: {str(e)}"
                             logger.error(error_msg)
                             analysis = error_msg
                 except Exception as e:
-                    error_msg = f"Error in Ollama vision processing: {str(e)}"
+                    error_msg = f"Error in LiteLLM vision processing: {str(e)}"
                     logger.error(error_msg)
                     analysis = error_msg
 
@@ -808,6 +842,28 @@ Be detailed and comprehensive in your analysis.
 """
         return prompt
 
+    def _format_vision_messages(self, prompt: str, images: List[str]) -> List[Dict]:
+        """Format messages for vision models with images in LiteLLM format"""
+        # Create a list with a single message containing text and images
+        message_content = [{"type": "text", "text": prompt}]
+        
+        # Add images to the content
+        for base64_image in images:
+            if base64_image and isinstance(base64_image, str):
+                # Ensure proper formatting with data URI if needed
+                if not base64_image.startswith("data:"):
+                    image_url = f"data:image/jpeg;base64,{base64_image}"
+                else:
+                    image_url = base64_image
+                    
+                message_content.append({
+                    "type": "image_url",
+                    "image_url": {"url": image_url}
+                })
+        
+        # Return as a properly formatted message list
+        return [{"role": "user", "content": message_content}]
+    
     def _create_workflow_prompt(self, batch, previous_context, language):
         """Create a specialized prompt for workflow analysis"""
         # Ensure language is not None
@@ -1053,38 +1109,62 @@ VIDEO ANALYSIS (MIDDLE PART):
                 # Check if using Ollama
                 if model_name == "ollama" or (ollama_config and ollama_config.get("enabled")):
                     try:
-                        # Use Ollama for local inference
+                        # Use LiteLLM for Ollama
+                        from smolagents import LiteLLMModel
+                        
                         base_url = ollama_config.get("base_url", "http://localhost:11434") if ollama_config else "http://localhost:11434"
                         model = ollama_config.get("model_name", "llama3") if ollama_config else "llama3"
-
-                        # Create or reuse Ollama client
-                        if not hasattr(self, '_ollama_client') or self._ollama_client is None:
-                            self._ollama_client = OllamaClient(base_url=base_url)
-                    except Exception as e:
-                        logger.error(f"Error initializing Ollama client: {str(e)}")
-                        return {"error": f"Error initializing Ollama client: {str(e)}"}
-
-                    # For smaller models, we need to be more careful with context length
-                    # Determine if we should use a smaller model for better performance
-                    if len(prompt) > 8000 and "small_models" in ollama_config:
-                        # Use the smallest model for very large prompts
-                        logger.info(f"Using smaller model for large prompt ({len(prompt)} chars)")
-                        model = ollama_config.get("small_models", {}).get("fast", model)
-
-                    # Call Ollama model with appropriate token limit
-                    # Smaller models need smaller token limits
-                    max_tokens = 2048 if "phi" in model or "gemma:2b" in model or "tiny" in model else 4096
-
-                    try:
-                        chunk_summary = self._ollama_client.generate(
-                            model=model,
-                            prompt=prompt,
-                            max_tokens=max_tokens
+                        
+                        # Check Ollama connection
+                        try:
+                            import requests
+                            response = requests.get(f"{base_url}/api/tags", timeout=5)
+                            if response.status_code != 200:
+                                return {"error": f"Cannot connect to Ollama at {base_url}. Please make sure Ollama is running with 'ollama serve'"}
+                            
+                            # Check if model is available
+                            available_models = [m["name"] for m in response.json().get("models", [])]
+                            if model not in available_models:
+                                return {"error": f"Model '{model}' not available in Ollama. Please pull it with 'ollama pull {model}'"}
+                        except Exception as e:
+                            return {"error": f"Error connecting to Ollama: {str(e)}"}
+                        
+                        # For smaller models, we need to be more careful with context length
+                        # Determine if we should use a smaller model for better performance
+                        if len(prompt) > 8000 and "small_models" in ollama_config:
+                            # Use the smallest model for very large prompts
+                            small_model = ollama_config.get("small_models", {}).get("fast", model)
+                            if small_model in available_models:
+                                logger.info(f"Using smaller model {small_model} for large prompt ({len(prompt)} chars)")
+                                model = small_model
+                        
+                        # Adjust token limits based on model
+                        max_tokens = 2048 if "phi" in model or "gemma:2b" in model or "tiny" in model else 4096
+                        
+                        # Create LiteLLM model for text
+                        litellm_model = LiteLLMModel(
+                            model_id=f"ollama/{model}",
+                            api_base=base_url,
+                            api_key="ollama",  # Placeholder, not used by Ollama
+                            temperature=0.7,
+                            max_tokens=max_tokens,
+                            request_timeout=120,  # Longer timeout for large prompts
                         )
+                        
+                        logger.info(f"Generating summary with model ollama/{model}, max tokens: {max_tokens}")
+                        # Call the model through LiteLLM (simple message format)
+                        messages = [{"role": "user", "content": prompt}]
+                        
+                        try:
+                            chunk_summary = litellm_model(messages)
+                        except Exception as e:
+                            error_msg = f"Error calling LiteLLM API: {str(e)}"
+                            logger.error(error_msg)
+                            chunk_summary = error_msg
                     except Exception as e:
-                        error_msg = f"Error calling Ollama API: {str(e)}"
+                        error_msg = f"Error using LiteLLM for summarization: {str(e)}"
                         logger.error(error_msg)
-                        chunk_summary = error_msg
+                        return {"error": error_msg}
 
                 # Call the LLM API based on model name
                 elif model_name.startswith("claude"):
@@ -1309,160 +1389,24 @@ def create_smolavision_agent(config: Dict[str, Any]):
 
     # Choose the appropriate model interface based on model_type
     if model_type == "ollama":
-        # For Ollama, create a proper Ollama model interface
-        class OllamaModel:
-            def __init__(self, model_name="llama3", base_url="http://localhost:11434"):
-                self.model_name = model_name
-                self.base_url = base_url
-                self.client = ollama.Client(host=base_url)
-                logger.info(f"Initialized OllamaModel with model: {model_name}")
-
-            def generate(self, prompt, **kwargs):
-                # This method is no longer needed as we handle everything in __call__
-                # Keeping it for backward compatibility
-                logger.warning("OllamaModel.generate() is deprecated, use __call__() instead")
-                try:
-                    # Just delegate to __call__
-                    return self.__call__(prompt, **kwargs)
-                except Exception as e:
-                    logger.error(f"Error in OllamaModel.generate: {str(e)}")
-                    return f"Error calling Ollama API: {str(e)}"
-
-            def __call__(self, messages, **kwargs):
-                """Process messages and return a response from the Ollama model.
-
-                Args:
-                    messages: Either a string prompt or a list of message dictionaries
-                    **kwargs: Additional parameters like max_tokens, temperature, etc.
-
-                Returns:
-                    str: The model's response text
-                """
-                try:
-                    # Format messages properly for Ollama
-                    formatted_messages = []
-
-                    # Handle different message formats
-                    if isinstance(messages, str):
-                        formatted_messages.append({"role": "user", "content": messages})
-                    elif isinstance(messages, list):
-                        for msg in messages:
-                            if isinstance(msg, str):
-                                formatted_messages.append({"role": "user", "content": msg})
-                            elif isinstance(msg, dict) and 'content' in msg:
-                                role = msg.get("role", "user")
-                                content = msg.get("content", "")
-
-                                # Handle content that is a list (like Anthropic format)
-                                if isinstance(content, list):
-                                    text_parts = []
-                                    for item in content:
-                                        if isinstance(item, dict) and "text" in item:
-                                            text_parts.append(item["text"])
-                                        elif isinstance(item, dict) and "type" in item and item["type"] == "text":
-                                            text_parts.append(item.get("text", ""))
-
-                                    formatted_messages.append({
-                                        "role": role if role in ["user", "assistant", "system", "tool"] else "user",
-                                        "content": " ".join(text_parts)
-                                    })
-                                else:
-                                    # Ensure content is a string
-                                    formatted_messages.append({
-                                        "role": role if role in ["user", "assistant", "system", "tool"] else "user",
-                                        "content": str(content)
-                                    })
-                            else:
-                                logger.warning(f"Skipping invalid message format: {msg}")
-                    else:
-                        # Handle other types of input by converting to string
-                        formatted_messages.append({"role": "user", "content": str(messages)})
-
-                    # Extract relevant parameters
-                    max_tokens = kwargs.get("max_tokens", 4096)
-                    temperature = kwargs.get("temperature", 0.7)
-                    stop_sequences = kwargs.get("stop_sequences", None)
-
-                    options = {
-                        "num_predict": max_tokens,
-                        "temperature": temperature,
-                        "stream": False
-                    }
-
-                    if stop_sequences:
-                        options["stop"] = stop_sequences
-
-                    # Log what we're about to send
-                    logger.debug(f"Calling Ollama API with model: {self.model_name}")
-                    logger.debug(f"Number of messages: {len(formatted_messages)}")
-
-                    # Call Ollama API
-                    response = self.client.chat(
-                        model=self.model_name,
-                        messages=formatted_messages,
-                        options=options
-                    )
-
-                    # Log raw response type for debugging
-                    logger.debug(f"Raw Ollama response type: {type(response)}")
-                    if isinstance(response, str):
-                        logger.debug(f"String response from Ollama (first 100 chars): {response[:100]}")
-                    else:
-                        logger.debug(f"Non-string response from Ollama: {str(response)[:100]}")
-
-                    # Extract content from response with robust error handling
-                    # IMPORTANT: Always check for string first
-                    if isinstance(response, str):
-                        return response
-
-                    # Handle dictionary response
-                    if isinstance(response, dict):
-                        if 'message' in response:
-                            message = response['message']
-                            if isinstance(message, dict) and 'content' in message:
-                                return str(message['content'])
-                            # Handle case where message itself might be a string or other type
-                            return str(message)
-                        elif 'content' in response:
-                            return str(response['content'])
-                        elif 'response' in response:
-                            return str(response['response'])
-
-                    # Handle object with attributes
-                    if hasattr(response, 'message'):
-                        message = response.message
-                        if hasattr(message, 'content'):
-                            return str(message.content)
-                        # Handle case where message might not have content
-                        return str(message)
-
-                    if hasattr(response, 'content'):
-                        return str(response.content)
-
-                    if hasattr(response, 'response'):
-                        return str(response.response)
-
-                    # Last resort: convert to string
-                    return str(response)
-
-                except Exception as e:
-                    logger.error(f"Error in OllamaModel.__call__: {str(e)}")
-                    return f"Error calling Ollama API: {str(e)}"
-
-            # Required methods for smolagents compatibility
-            def get_num_tokens(self, text):
-                # Simple approximation: 4 chars ~= 1 token
-                return len(text) // 4
-
-            def get_max_tokens(self):
-                return 4096
-
-        # Get model name from config
+        # Use LiteLLMModel with Ollama configuration
+        from smolagents import LiteLLMModel
+        
         ollama_model_name = model_config.ollama.model_name if hasattr(model_config.ollama, "model_name") else "llama3"
         ollama_base_url = model_config.ollama.base_url if hasattr(model_config.ollama, "base_url") else "http://localhost:11434"
-
-        model = OllamaModel(model_name=ollama_model_name, base_url=ollama_base_url)
-        logger.info(f"Using Ollama model: {ollama_model_name} for agent")
+        
+        # Format model name for LiteLLM
+        litellm_model_name = f"ollama/{ollama_model_name}"
+        
+        model = LiteLLMModel(
+            model_id=litellm_model_name,
+            api_base=ollama_base_url,
+            api_key="ollama",  # LiteLLM expects some API key, but Ollama doesn't use it
+            temperature=0.7,
+            max_tokens=4096,
+            request_timeout=60,
+        )
+        logger.info(f"Using LiteLLM with Ollama model: {litellm_model_name}")
     elif model_type == "anthropic":
         model = LiteLLMModel(model_id="anthropic/claude-3-opus-20240229", api_key=api_key)
     elif model_type == "openai":

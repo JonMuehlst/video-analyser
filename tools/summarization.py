@@ -197,25 +197,26 @@ VIDEO ANALYSIS (MIDDLE PART):
                 # Check if using Ollama
                 if model_name == "ollama" or (ollama_config and ollama_config.get("enabled")):
                     try:
-                        # Use Ollama for local inference
-                        from ollama_client import OllamaClient
-                    
+                        # Use LiteLLM for Ollama
+                        from smolagents import LiteLLMModel
+                        
                         base_url = ollama_config.get("base_url", "http://localhost:11434")
                         model = ollama_config.get("model_name", "llama3")
-                    
-                        # Create or reuse Ollama client
-                        if not hasattr(self, '_ollama_client') or self._ollama_client is None:
-                            self._ollama_client = OllamaClient(base_url=base_url)
-                    
-                        # Check if we can connect to Ollama
-                        if not self._ollama_client._check_connection():
-                            return {"error": "Cannot connect to Ollama. Please make sure Ollama is running with 'ollama serve'"}
-                    
-                        # Check if the model is available
-                        available_models = self._ollama_client.list_models()
-                        if model not in available_models:
-                            return {"error": f"Model '{model}' not available in Ollama. Please pull it with 'ollama pull {model}'"}
-                    
+                        
+                        # Check Ollama connection
+                        try:
+                            import requests
+                            response = requests.get(f"{base_url}/api/tags", timeout=5)
+                            if response.status_code != 200:
+                                return {"error": "Cannot connect to Ollama. Please make sure Ollama is running with 'ollama serve'"}
+                            
+                            # Check if model is available
+                            available_models = [m["name"] for m in response.json().get("models", [])]
+                            if model not in available_models:
+                                return {"error": f"Model '{model}' not available in Ollama. Please pull it with 'ollama pull {model}'"}
+                        except Exception as e:
+                            return {"error": f"Error connecting to Ollama: {str(e)}"}
+                        
                         # For smaller models, we need to be more careful with context length
                         # Determine if we should use a smaller model for better performance
                         if len(prompt) > 8000:
@@ -231,8 +232,7 @@ VIDEO ANALYSIS (MIDDLE PART):
                             else:
                                 # If no small models defined, try to use a smaller context window
                                 logger.warning(f"Large prompt ({len(prompt)} chars) may exceed model context window")
-                    
-                        # Call Ollama model with appropriate token limit
+                        
                         # Adjust token limits based on model
                         max_tokens = 4096  # Default
                         if "phi" in model or "gemma:2b" in model or "tiny" in model or "1b" in model:
@@ -241,13 +241,21 @@ VIDEO ANALYSIS (MIDDLE PART):
                             max_tokens = 4096  # Medium models
                         elif "13b" in model or "34b" in model or "70b" in model:
                             max_tokens = 8192  # Larger models
-                    
-                        logger.info(f"Generating summary with model {model}, max tokens: {max_tokens}")
-                        chunk_summary = self._ollama_client.generate(
-                            model=model,
-                            prompt=prompt,
-                            max_tokens=max_tokens
+                        
+                        # Create LiteLLM model for text
+                        litellm_model = LiteLLMModel(
+                            model_id=f"ollama/{model}",
+                            api_base=base_url,
+                            api_key="ollama",  # Placeholder, not used by Ollama
+                            temperature=0.7,
+                            max_tokens=max_tokens,
+                            request_timeout=120,  # Longer timeout for large prompts
                         )
+                        
+                        logger.info(f"Generating summary with model ollama/{model}, max tokens: {max_tokens}")
+                        # Call the model through LiteLLM (simple message format)
+                        messages = [{"role": "user", "content": prompt}]
+                        chunk_summary = litellm_model(messages)
                     except ImportError:
                         return {"error": "Required package 'requests' is not installed. Please install it with 'pip install requests'"}
                     except Exception as e:

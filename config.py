@@ -26,6 +26,20 @@ class OllamaConfig:
         """Convert to dictionary"""
         return asdict(self)
     
+    def get_litellm_model_name(self, model: str = None) -> str:
+        """Convert Ollama model name to litellm format"""
+        model_to_use = model or self.model_name
+        return f"ollama/{model_to_use}"
+    
+    def get_litellm_vision_model_name(self) -> str:
+        """Convert Ollama vision model name to litellm format"""
+        return f"ollama/{self.vision_model}"
+    
+    @property
+    def api_base(self) -> str:
+        """Return the base URL in the format expected by LiteLLM"""
+        return self.base_url
+    
 @dataclass
 class ModelConfig:
     """Configuration for AI models"""

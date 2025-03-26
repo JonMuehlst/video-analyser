@@ -92,29 +92,43 @@ class VisionAnalysisTool(Tool):
             # Check if using Ollama
             if model_name == "ollama" or (ollama_config and ollama_config.get("enabled")):
                 try:
-                    # Use Ollama for local inference
-                    from ollama_client import OllamaClient
-                    
+                    # Use LiteLLM for Ollama vision model
+                    from smolagents import LiteLLMModel
+                        
                     base_url = ollama_config.get("base_url", "http://localhost:11434")
                     vision_model = ollama_config.get("vision_model", "llava")
-                    
-                    # Create or reuse Ollama client
-                    if not hasattr(self, '_ollama_client') or self._ollama_client is None:
-                        self._ollama_client = OllamaClient(base_url=base_url)
-                    
-                    # Check if we can connect to Ollama
-                    if not self._ollama_client._check_connection():
-                        return "Error: Cannot connect to Ollama. Please make sure Ollama is running with 'ollama serve'"
-                    
-                    # Check if the vision model is available
-                    available_models = self._ollama_client.list_models()
-                    if vision_model not in available_models:
-                        return f"Error: Vision model '{vision_model}' not available in Ollama. Please pull it with 'ollama pull {vision_model}'"
-                    
+                        
+                    # Check if Ollama is running
+                    try:
+                        import requests
+                        response = requests.get(f"{base_url}/api/tags", timeout=5)
+                        if response.status_code != 200:
+                            return "Error: Cannot connect to Ollama. Please make sure Ollama is running with 'ollama serve'"
+                            
+                        # Check if the vision model is available
+                        available_models = [m["name"] for m in response.json().get("models", [])]
+                        if vision_model not in available_models:
+                            return f"Error: Vision model '{vision_model}' not available in Ollama. Please pull it with 'ollama pull {vision_model}'"
+                    except Exception as e:
+                        return f"Error connecting to Ollama: {str(e)}"
+                        
+                    # Format model name for LiteLLM
+                    litellm_vision_model = f"ollama/{vision_model}"
+                        
+                    # Create LiteLLM model for vision
+                    litellm_model = LiteLLMModel(
+                        model_id=litellm_vision_model,
+                        api_base=base_url,
+                        api_key="ollama",  # Placeholder, not used by Ollama
+                        temperature=0.7,
+                        max_tokens=4096,
+                        request_timeout=120,  # Longer timeout for vision models
+                    )
+                        
                     # Determine optimal batch size based on model
                     # These are conservative defaults that should work on most GPUs
                     max_images_per_request = 3  # Default for 12GB VRAM
-                    
+                        
                     # Adjust based on model size
                     if "tiny" in vision_model or "1b" in vision_model:
                         max_images_per_request = 6  # Smaller models can handle more images
@@ -122,62 +136,58 @@ class VisionAnalysisTool(Tool):
                         max_images_per_request = 3  # Medium models
                     else:
                         max_images_per_request = 2  # Larger models need smaller batches
-                    
+                        
                     # Process in batches
                     if len(batch) > max_images_per_request:
                         logger.info(f"Batch size ({len(batch)}) exceeds max images per request ({max_images_per_request}). Processing in sub-batches.")
-                        
+                            
                         # Process in sub-batches and combine results
                         sub_batch_results = []
                         for i in range(0, len(batch), max_images_per_request):
                             sub_batch = batch[i:i + max_images_per_request]
-                            
+                                
                             # Extract base64 images for this sub-batch
                             images = []
                             for frame in sub_batch:
                                 base64_image = frame.get('base64_image', '')
                                 if base64_image and isinstance(base64_image, str):
                                     images.append(base64_image)
-                            
+                                
                             # Create a sub-prompt
                             sub_prompt = f"Analyzing frames {i+1} to {i+len(sub_batch)} of {len(batch)}:\n{prompt}"
-                            
-                            # Call Ollama vision model for this sub-batch
-                            try:
-                                sub_result = self._ollama_client.generate_vision(
-                                    model=vision_model,
-                                    prompt=sub_prompt,
-                                    images=images,
-                                    max_tokens=2048  # Smaller token limit for sub-batches
-                                )
-                                sub_batch_results.append(sub_result)
                                 
+                            try:
+                                # Format messages for vision model with images
+                                messages = self._format_vision_messages(sub_prompt, images)
+                                    
+                                # Call the LiteLLM model
+                                sub_result = litellm_model(messages)
+                                sub_batch_results.append(sub_result)
+                                    
                                 # Log progress
                                 logger.info(f"Processed sub-batch {i//max_images_per_request + 1}/{(len(batch) + max_images_per_request - 1)//max_images_per_request}")
-                                
+                                    
                             except Exception as e:
                                 error_msg = f"Error processing sub-batch: {str(e)}"
                                 logger.error(error_msg)
                                 sub_batch_results.append(f"Error in batch {i//max_images_per_request + 1}: {error_msg}")
-                        
+                            
                         # Combine results
                         analysis = "\n\n".join(sub_batch_results)
                     else:
                         # Process the whole batch at once
-                        # Extract base64 images for Ollama
+                        # Extract base64 images
                         images = []
                         for frame in batch:
                             base64_image = frame.get('base64_image', '')
                             if base64_image and isinstance(base64_image, str):
                                 images.append(base64_image)
-                        
-                        # Call Ollama vision model
-                        analysis = self._ollama_client.generate_vision(
-                            model=vision_model,
-                            prompt=prompt,
-                            images=images,
-                            max_tokens=4096
-                        )
+                            
+                        # Format messages for vision model with images
+                        messages = self._format_vision_messages(prompt, images)
+                            
+                        # Call the LiteLLM model
+                        analysis = litellm_model(messages)
                 except ImportError:
                     return "Error: Required package 'requests' is not installed. Please install it with 'pip install requests'"
                 except Exception as e:
@@ -349,6 +359,28 @@ Be detailed and comprehensive in your analysis.
 """
         return prompt
 
+    def _format_vision_messages(self, prompt: str, images: List[str]) -> List[Dict]:
+        """Format messages for vision models with images in LiteLLM format"""
+        # Create a list with a single message containing text and images
+        message_content = [{"type": "text", "text": prompt}]
+        
+        # Add images to the content
+        for base64_image in images:
+            if base64_image and isinstance(base64_image, str):
+                # Ensure proper formatting with data URI if needed
+                if not base64_image.startswith("data:"):
+                    image_url = f"data:image/jpeg;base64,{base64_image}"
+                else:
+                    image_url = base64_image
+                    
+                message_content.append({
+                    "type": "image_url",
+                    "image_url": {"url": image_url}
+                })
+        
+        # Return as a properly formatted message list
+        return [{"role": "user", "content": message_content}]
+    
     def _create_workflow_prompt(self, batch, previous_context, language):
         """Create a specialized prompt for workflow analysis"""
         # Ensure language is not None
