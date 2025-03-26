@@ -1385,8 +1385,7 @@ def create_smolavision_agent(config: Dict[str, Any]):
 
     # Choose the appropriate model interface based on model_type
     if model_type == "ollama":
-        # Use LiteLLMModel with Ollama configuration
-        from smolagents import LiteLLMModel
+
         
         ollama_model_name = model_config.ollama.model_name if hasattr(model_config.ollama, "model_name") else "llama3"
         ollama_base_url = model_config.ollama.base_url if hasattr(model_config.ollama, "base_url") else "http://localhost:11434"
