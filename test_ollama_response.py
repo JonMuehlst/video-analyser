@@ -79,18 +79,57 @@ class OllamaModel:
 
             # Handle object with attributes - wrap in try/except to catch AttributeErrors
             try:
+                # First check if it's already a string
+                if isinstance(response, str):
+                    return response
+                    
+                # Handle dictionary response
+                if isinstance(response, dict):
+                    if 'message' in response:
+                        try:
+                            message = response['message']
+                            if isinstance(message, dict) and 'content' in message:
+                                return str(message['content'])
+                            return str(message)
+                        except Exception as e:
+                            logger.error(f"Error accessing message in dictionary: {str(e)}")
+                            return f"Error accessing message: {str(e)}"
+                    
+                    if 'content' in response:
+                        return str(response['content'])
+                    
+                    if 'response' in response:
+                        return str(response['response'])
+                
+                # Handle object with attributes
                 if hasattr(response, 'message'):
-                    message = response.message
-                    if hasattr(message, 'content'):
-                        return str(message.content)
-                    # Handle case where message might not have content
-                    return str(message)
+                    try:
+                        message = response.message
+                        if hasattr(message, 'content'):
+                            return str(message.content)
+                        # Handle case where message might not have content
+                        return str(message)
+                    except AttributeError as attr_err:
+                        logger.error(f"AttributeError accessing message: {str(attr_err)}")
+                        return f"Error accessing message attribute: {str(attr_err)}"
 
                 if hasattr(response, 'content'):
-                    return str(response.content)
+                    try:
+                        return str(response.content)
+                    except AttributeError as attr_err:
+                        logger.error(f"AttributeError accessing content: {str(attr_err)}")
+                        return f"Error accessing content attribute: {str(attr_err)}"
 
                 if hasattr(response, 'response'):
-                    return str(response.response)
+                    try:
+                        return str(response.response)
+                    except AttributeError as attr_err:
+                        logger.error(f"AttributeError accessing response: {str(attr_err)}")
+                        return f"Error accessing response attribute: {str(attr_err)}"
+                        
+                # Last resort: convert to string
+                return str(response)
+                
             except AttributeError as attr_err:
                 logger.error(f"AttributeError accessing response: {str(attr_err)}")
                 return f"Error accessing response attribute: {str(attr_err)}"
