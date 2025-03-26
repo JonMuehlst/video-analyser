@@ -8,7 +8,7 @@ import subprocess
 import argparse
 import dotenv
 from pathlib import Path
-from config import create_default_config
+from smolavision.config import create_default_config
 
 # Load environment variables from .env file
 dotenv.load_dotenv(Path(__file__).parent / '.env')
@@ -56,10 +56,12 @@ def main():
     
     # Get model names from config
     config = create_default_config()
-    small_models = config["model"].ollama.small_models
     
-    # Convert to regular dictionary if it's not already
-    if not isinstance(small_models, dict):
+    # Extract the small_models dictionary
+    if "model" in config and "ollama" in config["model"]:
+        small_models = config["model"]["ollama"].get("small_models", {})
+    else:
+        # Default models if config structure is different
         small_models = {
             "text": "phi3:mini",       # Phi-3 Mini (3.8B parameters)
             "vision": "bakllava:7b",   # Bakllava 7B (LLaVA architecture)

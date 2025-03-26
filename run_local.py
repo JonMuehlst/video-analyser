@@ -11,8 +11,11 @@ from pathlib import Path
 import requests
 import time
 import ollama
-from video_analysis import run_smolavision
-from config import create_default_config
+
+# Import from the new package structure
+from smolavision.pipeline import run_smolavision
+from smolavision.config import create_default_config
+from smolavision.logging import configure_logging
 
 # Load environment variables from .env file
 dotenv.load_dotenv(Path(__file__).parent / '.env')
