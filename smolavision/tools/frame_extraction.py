@@ -1,59 +1,40 @@
-"""
-Frame extraction tool adapter for SmolaVision.
-"""
-
+# smolavision/tools/frame_extraction.py
 import logging
-from typing import List, Dict, Any, Optional
+from typing import Dict, Any
+from smolavision.tools.base import Tool
+from smolavision.video.extractor import extract_frames
+from smolavision.config.schema import VideoConfig
+from smolavision.exceptions import ToolError
 
-from ..exceptions import VideoProcessingError
-from ..logging import get_logger
-from ..video.extractor import extract_frames
+logger = logging.getLogger(__name__)
 
-logger = get_logger("tools.frame_extraction")
+class FrameExtractionTool(Tool):
+    """Tool for extracting frames from a video."""
 
+    name: str = "frame_extraction"
+    description: str = "Extract frames from a video at specified intervals.  Specify path to video."
+    input_type: str = "video_path"
+    output_type: str = "list[Frame]"
 
-class FrameExtractionTool:
-    """Adapter for frame extraction functionality"""
-    
-    @staticmethod
-    def execute(
-        video_path: str,
-        interval_seconds: int = 10,
-        detect_scenes: bool = True,
-        scene_threshold: float = 30.0,
-        resize_width: Optional[int] = None,
-        start_time: float = 0.0,
-        end_time: float = 0.0
-    ) -> List[Dict[str, Any]]:
-        """
-        Extract frames from a video file at regular intervals and detect scene changes.
-        
-        Args:
-            video_path: Path to the video file
-            interval_seconds: Extract a frame every N seconds
-            detect_scenes: Whether to detect scene changes
-            scene_threshold: Threshold for scene change detection
-            resize_width: Width to resize frames to (keeps aspect ratio)
-            start_time: Start time in seconds (0 for beginning)
-            end_time: End time in seconds (0 for entire video)
-            
-        Returns:
-            List of dictionaries containing frame data
-            
-        Raises:
-            VideoProcessingError: If frame extraction fails
-        """
+    def __init__(self, config: Dict[str, Any]):
+        """Initialize the FrameExtractionTool."""
+        self.config = config.get("video", {}) # Get nested "video" part of config
+
+    def use(self, video_path: str) -> str:
+        """Extract frames from the video."""
         try:
-            return extract_frames(
+            frames = extract_frames(
                 video_path=video_path,
-                interval_seconds=interval_seconds,
-                resize_width=resize_width,
-                start_time=start_time,
-                end_time=end_time,
-                detect_scenes=detect_scenes,
-                scene_threshold=scene_threshold
+                interval_seconds=self.config.get("frame_interval", 10),
+                detect_scenes=self.config.get("detect_scenes", True),
+                scene_threshold=self.config.get("scene_threshold", 30.0),
+                resize_width=self.config.get("resize_width"),
+                start_time=self.config.get("start_time", 0.0),
+                end_time=self.config.get("end_time", 0.0)
             )
+            # Serialize the list of Frame objects to JSON
+
+            return str([frame.model_dump() for frame in frames])
+
         except Exception as e:
-            error_msg = f"Error extracting frames: {str(e)}"
-            logger.error(error_msg)
-            raise VideoProcessingError(error_msg) from e
+            raise ToolError(f"Frame extraction failed: {e}") from e

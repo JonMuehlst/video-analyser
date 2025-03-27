@@ -1,50 +1,35 @@
-"""
-Batch creation tool adapter for SmolaVision.
-"""
-
+# smolavision/tools/batch_creation.py
 import logging
-from typing import List, Dict, Any
+from typing import Dict, Any, List
+from smolavision.tools.base import Tool
+from smolavision.video.types import Frame
+from smolavision.batch.creator import create_batches
+from smolavision.exceptions import ToolError
 
-from ..exceptions import BatchProcessingError
-from ..logging import get_logger
-from ..batch.creator import create_batches
+logger = logging.getLogger(__name__)
 
-logger = get_logger("tools.batch_creation")
+class BatchCreationTool(Tool):
+    """Tool for creating batches of frames."""
 
+    name: str = "batch_creation"
+    description: str = "Create batches of frames for analysis, provide a list of frames to batch"
+    input_type: str = "list[Frame]"
+    output_type: str = "list[Batch]"
 
-class BatchCreationTool:
-    """Adapter for batch creation functionality"""
-    
-    @staticmethod
-    def execute(
-        frames: List[Dict[str, Any]],
-        max_batch_size_mb: float = 10.0,
-        max_images_per_batch: int = 15,
-        overlap_frames: int = 2
-    ) -> List[List[Dict[str, Any]]]:
-        """
-        Group frames into batches based on size and count limits.
-        
-        Args:
-            frames: List of extracted frames
-            max_batch_size_mb: Maximum size of a batch in MB
-            max_images_per_batch: Maximum number of images in a batch
-            overlap_frames: Number of frames to overlap between batches
-            
-        Returns:
-            List of batches, where each batch is a list of frames
-            
-        Raises:
-            BatchProcessingError: If batch creation fails
-        """
+    def __init__(self, config: Dict[str, Any]):
+        """Initialize the BatchCreationTool."""
+        self.config = config.get("analysis", {})
+
+    def use(self, frames: List[Dict[str, Any]]) -> str:
+        """Create batches from the input frames."""
         try:
-            return create_batches(
-                frames=frames,
-                max_batch_size_mb=max_batch_size_mb,
-                max_images_per_batch=max_images_per_batch,
-                overlap_frames=overlap_frames
+            typed_frames = [Frame(**frame) for frame in frames]
+            batches = create_batches(
+                frames=typed_frames,
+                max_batch_size_mb=self.config.get("max_batch_size_mb", 10.0),
+                max_images_per_batch=self.config.get("max_images_per_batch", 15),
+                overlap_frames=self.config.get("batch_overlap_frames", 2)
             )
+            return str([batch.model_dump() for batch in batches]) # convert each Batch to a dictionary
         except Exception as e:
-            error_msg = f"Error creating batches: {str(e)}"
-            logger.error(error_msg)
-            raise BatchProcessingError(error_msg) from e
+            raise ToolError(f"Batch creation failed: {e}") from e

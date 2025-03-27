@@ -1,57 +1,34 @@
-"""
-Summarization tool adapter for SmolaVision.
-"""
-
+# smolavision/tools/summarization.py
 import logging
-from typing import List, Dict, Any, Optional
+from typing import Dict, Any, List
+from smolavision.tools.base import Tool
+from smolavision.models.factory import create_summary_model
+from smolavision.exceptions import ToolError
 
-from ..exceptions import SummarizationError
-from ..logging import get_logger
-from ..analysis.summary import generate_summary
-from ..models.base import ModelInterface
+logger = logging.getLogger(__name__)
 
-logger = get_logger("tools.summarization")
+class SummarizationTool(Tool):
+    """Tool for generating a summary of the analysis results."""
 
+    name: str = "summarization"
+    description: str = "Generate a summary of the analysis results, provide a string from vision analysis"
+    input_type: str = "str"
+    output_type: str = "str"
 
-class SummarizationTool:
-    """Adapter for summarization functionality"""
-    
-    @staticmethod
-    def execute(
-        analyses: List[str],
-        model: ModelInterface,
-        language: str = "English",
-        mission: str = "general",
-        generate_flowchart: bool = False,
-        output_dir: Optional[str] = None
-    ) -> Dict[str, Any]:
-        """
-        Generate a coherent summary from all batch analyses.
-        
-        Args:
-            analyses: List of all batch analyses
-            model: Model to use for summarization
-            language: Language of text in the video
-            mission: Specific analysis mission (e.g., 'workflow', 'general')
-            generate_flowchart: Whether to generate a flowchart diagram
-            output_dir: Directory to save output files
-            
-        Returns:
-            Dictionary containing summary results
-            
-        Raises:
-            SummarizationError: If summarization fails
-        """
+    def __init__(self, config: Dict[str, Any]):
+        """Initialize the SummarizationTool."""
+        self.config = config
+        self.model = create_summary_model(config.get("model", {}))
+
+    def use(self, analyses: List[str], language: str = "English") -> str:
+        """Generate a summary of the analysis results."""
         try:
-            return generate_summary(
-                analyses=analyses,
-                model=model,
-                language=language,
-                mission=mission,
-                generate_flowchart=generate_flowchart,
-                output_dir=output_dir
-            )
+            # Concatenate all analyses
+            full_text = "\n".join(analyses)
+            # Create a prompt for summarization
+            prompt = f"Summarize the following text in {language}:\n{full_text}"
+            # Generate the summary
+            summary = self.model.generate_text(prompt)
+            return summary
         except Exception as e:
-            error_msg = f"Error generating summary: {str(e)}"
-            logger.error(error_msg)
-            raise SummarizationError(error_msg) from e
+            raise ToolError(f"Summarization failed: {e}") from e
