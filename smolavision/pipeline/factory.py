@@ -1,6 +1,7 @@
 from typing import Dict, Any
 from smolavision.pipeline.base import Pipeline
 from smolavision.pipeline.standard import StandardPipeline
+from smolavision.pipeline.segmented import SegmentedPipeline
 from smolavision.exceptions import ConfigurationError
 
 def create_pipeline(config: Dict[str, Any]) -> Pipeline:
@@ -20,5 +21,7 @@ def create_pipeline(config: Dict[str, Any]) -> Pipeline:
     
     if pipeline_type == "standard":
         return StandardPipeline(config)
+    elif pipeline_type == "segmented":
+        return SegmentedPipeline(config)
     else:
         raise ConfigurationError(f"Unsupported pipeline type: {pipeline_type}")

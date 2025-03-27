@@ -5,6 +5,12 @@ from datetime import datetime
 
 from smolavision.pipeline.base import Pipeline
 from smolavision.tools.factory import ToolFactory
+from smolavision.models.factory import ModelFactory
+from smolavision.video.types import Frame
+from smolavision.batch.types import Batch
+from smolavision.analysis.vision import analyze_batch
+from smolavision.analysis.summarization import generate_summary
+from smolavision.analysis.types import AnalysisResult
 from smolavision.exceptions import PipelineError
 
 logger = logging.getLogger(__name__)
@@ -23,6 +29,10 @@ class StandardPipeline(Pipeline):
         self.video_config = config.get("video", {})
         self.model_config = config.get("model", {})
         self.analysis_config = config.get("analysis", {})
+        
+        # Initialize models
+        self.vision_model = ModelFactory.create_vision_model(self.model_config)
+        self.summary_model = ModelFactory.create_summary_model(self.model_config)
         
     def run(self, video_path: str) -> Dict[str, Any]:
         """
@@ -50,8 +60,6 @@ class StandardPipeline(Pipeline):
             if self.video_config.get("enable_ocr", False):
                 ocr_tool = ToolFactory.create_tool(self.config, "ocr_extraction")
             batch_tool = ToolFactory.create_tool(self.config, "batch_creation")
-            vision_tool = ToolFactory.create_tool(self.config, "vision_analysis")
-            summary_tool = ToolFactory.create_tool(self.config, "summarization")
             
             # 1. Extract frames
             logger.info(f"Extracting frames from {video_path}")
@@ -71,26 +79,49 @@ class StandardPipeline(Pipeline):
             
             # 4. Analyze batches
             logger.info(f"Analyzing {len(batches)} batches")
-            analyses = []
+            analysis_results = []
             previous_context = ""
             
-            for i, batch in enumerate(batches):
+            for i, batch_dict in enumerate(batches):
                 logger.info(f"Analyzing batch {i+1}/{len(batches)}")
-                prompt = f"Analyze these frames from a video. {self.analysis_config.get('mission', 'general')} analysis."
-                analysis = vision_tool.use([batch], prompt, previous_context)
-                analyses.append(analysis)
-                previous_context = analysis[-1000:] if len(analysis) > 1000 else analysis
+                
+                # Convert dict to Batch object
+                batch = Batch(**batch_dict)
+                
+                # Analyze batch
+                result = analyze_batch(
+                    batch=batch,
+                    previous_context=previous_context,
+                    language=self.video_config.get("language", "English"),
+                    mission=self.analysis_config.get("mission", "general"),
+                    model=self.vision_model,
+                    batch_id=i
+                )
+                
+                analysis_results.append(result)
+                previous_context = result.context
             
             # 5. Generate summary
             logger.info("Generating summary")
-            summary = summary_tool.use(analyses, self.video_config.get("language", "English"))
+            analyses = [result.analysis_text for result in analysis_results]
+            
+            summary_result = generate_summary(
+                analyses=analyses,
+                language=self.video_config.get("language", "English"),
+                mission=self.analysis_config.get("mission", "general"),
+                generate_flowchart=self.analysis_config.get("generate_flowchart", False),
+                model=self.summary_model,
+                output_dir=output_dir
+            )
             
             # Return results
             return {
-                "summary_text": summary,
+                "summary_text": summary_result["summary_text"],
                 "analyses": analyses,
-                "coherent_summary": os.path.join(output_dir, "video_summary.txt"),
-                "full_analysis": os.path.join(output_dir, "video_analysis_full.txt")
+                "summary_path": summary_result["summary_path"],
+                "full_analysis_path": summary_result["full_analysis_path"],
+                "flowchart_path": summary_result.get("flowchart_path"),
+                "output_dir": output_dir
             }
             
         except Exception as e:

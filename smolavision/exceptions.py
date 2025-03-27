@@ -33,3 +33,18 @@ class PipelineError(SmolaVisionError):
 class ToolError(SmolaVisionError):
     """Raised when there is an error during tool execution."""
     pass
+
+
+class AnalysisError(SmolaVisionError):
+    """Raised when there is an error during batch analysis."""
+    pass
+
+
+class SummarizationError(SmolaVisionError):
+    """Raised when there is an error during summarization."""
+    pass
+
+
+class OutputError(SmolaVisionError):
+    """Raised when there is an error during output generation."""
+    pass

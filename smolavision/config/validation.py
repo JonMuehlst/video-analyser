@@ -121,6 +121,53 @@ def validate_analysis_config(config: Dict[str, Any]) -> List[str]:
     
     return errors
 
+def validate_pipeline_config(config: Dict[str, Any]) -> List[str]:
+    """
+    Validate pipeline configuration.
+    
+    Args:
+        config: Pipeline configuration dictionary
+        
+    Returns:
+        List of validation errors, empty if valid
+    """
+    errors = []
+    
+    # Check pipeline type
+    pipeline_type = config.get("pipeline_type")
+    if pipeline_type not in ["standard", "segmented"]:
+        errors.append(f"Invalid pipeline type: {pipeline_type}. Must be one of: standard, segmented.")
+    
+    # Check segment length for segmented pipeline
+    if pipeline_type == "segmented":
+        segment_length = config.get("segment_length")
+        if segment_length is not None and (not isinstance(segment_length, int) or segment_length <= 0):
+            errors.append(f"Invalid segment length: {segment_length}. Must be a positive integer.")
+    
+    return errors
+
+def validate_output_config(config: Dict[str, Any]) -> List[str]:
+    """
+    Validate output configuration.
+    
+    Args:
+        config: Output configuration dictionary
+        
+    Returns:
+        List of validation errors, empty if valid
+    """
+    errors = []
+    
+    # Check output formats
+    formats = config.get("formats", [])
+    valid_formats = ["text", "json", "html", "markdown"]
+    
+    for format_type in formats:
+        if format_type not in valid_formats:
+            errors.append(f"Invalid output format: {format_type}. Must be one of: {', '.join(valid_formats)}.")
+    
+    return errors
+
 def validate_output_dir(output_dir: str) -> List[str]:
     """
     Validate output directory.
@@ -172,6 +219,14 @@ def validate_config(config: Dict[str, Any]) -> Tuple[bool, List[str]]:
     # Validate analysis configuration
     analysis_config = config.get("analysis", {})
     errors.extend(validate_analysis_config(analysis_config))
+    
+    # Validate pipeline configuration
+    pipeline_config = config.get("pipeline", {})
+    errors.extend(validate_pipeline_config(pipeline_config))
+    
+    # Validate output configuration
+    output_config = config.get("output", {})
+    errors.extend(validate_output_config(output_config))
     
     # Validate output directory
     output_dir = config.get("output_dir", "output")
