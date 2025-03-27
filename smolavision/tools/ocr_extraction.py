@@ -18,12 +18,12 @@ class OCRExtractionTool(Tool):
 
     def __init__(self, config: Dict[str, Any]):
         """Initialize the OCRExtractionTool."""
-        self.config = config.get("video",{})
+        self.config = config.get("video", {})
 
     def use(self, frames: List[Dict[str, Any]]) -> str:
         """Extract text from frames using OCR."""
         try:
-            #We are receiving a list of dicts, let's use a comprehension for conversion
+            # We are receiving a list of dicts, let's use a comprehension for conversion
             typed_frames = [Frame(**frame) for frame in frames]
             extracted_frames = extract_text(typed_frames, language=self.config.get("language", "English"))
             # serialize results

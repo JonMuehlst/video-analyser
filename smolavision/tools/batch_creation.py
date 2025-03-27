@@ -30,6 +30,6 @@ class BatchCreationTool(Tool):
                 max_images_per_batch=self.config.get("max_images_per_batch", 15),
                 overlap_frames=self.config.get("batch_overlap_frames", 2)
             )
-            return str([batch.model_dump() for batch in batches]) # convert each Batch to a dictionary
+            return str([batch.model_dump() for batch in batches])  # convert each Batch to a dictionary
         except Exception as e:
             raise ToolError(f"Batch creation failed: {e}") from e

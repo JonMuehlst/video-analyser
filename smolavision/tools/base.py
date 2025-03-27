@@ -23,41 +23,40 @@ class Tool(ABC):
     
     @property
     @abstractmethod
-    def input_schema(self) -> Dict[str, Any]:
-        """Get input schema."""
+    def input_type(self) -> str:
+        """Get input type description."""
         pass
     
     @property
     @abstractmethod
-    def output_schema(self) -> Dict[str, Any]:
-        """Get output schema."""
+    def output_type(self) -> str:
+        """Get output type description."""
         pass
     
     @abstractmethod
-    def execute(self, **kwargs) -> Any:
+    def use(self, *args, **kwargs) -> Any:
         """
         Execute the tool.
         
         Args:
-            **kwargs: Tool-specific input parameters
+            *args: Tool-specific positional arguments
+            **kwargs: Tool-specific keyword arguments
             
         Returns:
             Tool-specific output
         """
         pass
     
-    def validate_input(self, **kwargs) -> bool:
+    def validate_input(self, input_data: Any) -> bool:
         """
-        Validate input parameters against the schema.
+        Validate input data against the expected type.
         
         Args:
-            **kwargs: Input parameters to validate
+            input_data: Input data to validate
             
         Returns:
             True if valid, raises exception otherwise
         """
         # Basic validation - override for more complex validation
-        for key, schema in self.input_schema.items():
-            if schema.get("required", False) and key not in kwargs:
-                raise ValueError(f"Required parameter '{key}' missing")
+        # This is a placeholder for more sophisticated validation
         return True

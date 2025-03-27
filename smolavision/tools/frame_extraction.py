@@ -12,13 +12,13 @@ class FrameExtractionTool(Tool):
     """Tool for extracting frames from a video."""
 
     name: str = "frame_extraction"
-    description: str = "Extract frames from a video at specified intervals.  Specify path to video."
+    description: str = "Extract frames from a video at specified intervals. Specify path to video."
     input_type: str = "video_path"
     output_type: str = "list[Frame]"
 
     def __init__(self, config: Dict[str, Any]):
         """Initialize the FrameExtractionTool."""
-        self.config = config.get("video", {}) # Get nested "video" part of config
+        self.config = config.get("video", {})  # Get nested "video" part of config
 
     def use(self, video_path: str) -> str:
         """Extract frames from the video."""
@@ -33,7 +33,6 @@ class FrameExtractionTool(Tool):
                 end_time=self.config.get("end_time", 0.0)
             )
             # Serialize the list of Frame objects to JSON
-
             return str([frame.model_dump() for frame in frames])
 
         except Exception as e:

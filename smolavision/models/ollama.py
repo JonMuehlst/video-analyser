@@ -2,6 +2,7 @@
 import logging
 import json
 import httpx
+import asyncio
 from typing import List, Dict, Any
 
 from smolavision.models.base import ModelInterface
@@ -30,22 +31,87 @@ class OllamaModel(ModelInterface):
         self.temperature = temperature
         self.max_tokens = max_tokens
         self.request_timeout = request_timeout
-        self.client = httpx.AsyncClient(base_url=self.base_url, timeout=self.request_timeout) # async client, timeout of 60 seconds
+        self.client = httpx.Client(base_url=self.base_url, timeout=self.request_timeout)
+        self.async_client = httpx.AsyncClient(base_url=self.base_url, timeout=self.request_timeout)
         logger.info(f"Initialized Ollama model: {self.model_name} (vision: {self.vision_model})")
 
-    async def generate_text(self, prompt: str, **kwargs) -> str:
-        """Generate text from a prompt using Ollama."""
+    def generate_text(self, prompt: str, **kwargs) -> str:
+        """Generate text from a prompt using Ollama (synchronous)."""
         try:
             data = {
                 "prompt": prompt,
                 "model": self.model_name,
-                "stream": False, # we're requesting single output, so disable streaming
+                "stream": False,  # we're requesting single output, so disable streaming
                 "temperature": self.temperature,
                 "max_tokens": self.max_tokens,
                 **kwargs  # pass other params here like temperature
             }
 
-            async with self.client as client:
+            response = self.client.post("/api/generate", json=data)
+            response.raise_for_status()  # Raise HTTPError for bad responses (4xx or 5xx)
+            return response.json().get("response", "")
+
+        except httpx.TimeoutException as e:
+            raise ModelError(f"Ollama text generation timed out: {e}") from e
+        except httpx.HTTPStatusError as e:
+            raise ModelError(f"Ollama text generation failed with status {e.response.status_code}: {e}") from e
+        except Exception as e:
+            raise ModelError(f"Ollama text generation failed: {e}") from e
+
+    def analyze_images(self, images: List[str], prompt: str, max_tokens: int = 4096, **kwargs) -> str:
+        """Analyze images with a text prompt using Ollama (synchronous)."""
+        try:
+            # Create the message with the image data
+            messages = []
+            for image_data in images:
+                messages.append({
+                    "type": "image",
+                    "data": image_data  # Image data as base64 encoded string
+                })
+
+            messages.append({
+                "type": "text",
+                "content": prompt
+            })
+
+            data = {
+                "prompt": "",  # Prompt is set as messages
+                "model": self.vision_model,
+                "stream": False,  # Request one value
+                "format": "json",
+                "messages": messages,
+                "max_tokens": max_tokens,  # Override tokens
+                "temperature": self.temperature,
+                **kwargs
+            }
+
+            response = self.client.post("/api/chat", json=data)
+            response.raise_for_status()
+            json_response = response.json()
+            # Get string of all responses, assuming it's the chat-style API endpoint
+            return "".join([message.get("content", "") for message in json_response.get("choices", []) if message.get("content")])
+
+        except httpx.TimeoutException as e:
+            raise ModelError(f"Ollama image analysis timed out: {e}") from e
+        except httpx.HTTPStatusError as e:
+            raise ModelError(f"Ollama image analysis failed with status {e.response.status_code}: {e}") from e
+        except Exception as e:
+            raise ModelError(f"Ollama image analysis failed: {e}") from e
+
+    # Async methods for compatibility with async code
+    async def generate_text_async(self, prompt: str, **kwargs) -> str:
+        """Generate text from a prompt using Ollama (asynchronous)."""
+        try:
+            data = {
+                "prompt": prompt,
+                "model": self.model_name,
+                "stream": False,  # we're requesting single output, so disable streaming
+                "temperature": self.temperature,
+                "max_tokens": self.max_tokens,
+                **kwargs  # pass other params here like temperature
+            }
+
+            async with self.async_client as client:
                 response = await client.post("/api/generate", json=data)
 
             response.raise_for_status()  # Raise HTTPError for bad responses (4xx or 5xx)
@@ -58,15 +124,15 @@ class OllamaModel(ModelInterface):
         except Exception as e:
             raise ModelError(f"Ollama text generation failed: {e}") from e
 
-    async def analyze_images(self, images: List[str], prompt: str, max_tokens: int = 4096, **kwargs) -> str:
-        """Analyze images with a text prompt using Ollama."""
+    async def analyze_images_async(self, images: List[str], prompt: str, max_tokens: int = 4096, **kwargs) -> str:
+        """Analyze images with a text prompt using Ollama (asynchronous)."""
         try:
             # Create the message with the image data
             messages = []
             for image_data in images:
                 messages.append({
                     "type": "image",
-                    "data": image_data # Image data as base64 encoded string
+                    "data": image_data  # Image data as base64 encoded string
                 })
 
             messages.append({
@@ -75,24 +141,23 @@ class OllamaModel(ModelInterface):
             })
 
             data = {
-                "prompt": "", # Prompt is set as messages
+                "prompt": "",  # Prompt is set as messages
                 "model": self.vision_model,
-                "stream": False, # Request one value
+                "stream": False,  # Request one value
                 "format": "json",
                 "messages": messages,
-                "max_tokens": max_tokens, # Override tokens
+                "max_tokens": max_tokens,  # Override tokens
                 "temperature": self.temperature,
                 **kwargs
             }
 
-            async with self.client as client:
+            async with self.async_client as client:
                 response = await client.post("/api/chat", json=data)
 
             response.raise_for_status()
             json_response = response.json()
-            #Get string of all responses, assuming it's the chat-style API endpoint
-            return "".join([message.get("content","") for message in json_response.get("choices",[]) if message.get("content")])
-
+            # Get string of all responses, assuming it's the chat-style API endpoint
+            return "".join([message.get("content", "") for message in json_response.get("choices", []) if message.get("content")])
 
         except httpx.TimeoutException as e:
             raise ModelError(f"Ollama image analysis timed out: {e}") from e
