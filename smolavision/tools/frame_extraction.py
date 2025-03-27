@@ -1,9 +1,8 @@
 # smolavision/tools/frame_extraction.py
 import logging
-from typing import Dict, Any
+from typing import Dict, Any, List
 from smolavision.tools.base import Tool
-from smolavision.video.extractor import DefaultFrameExtractor
-from smolavision.config.schema import VideoConfig
+from smolavision.video.extractor import extract_frames
 from smolavision.exceptions import ToolError
 
 logger = logging.getLogger(__name__)
@@ -19,12 +18,22 @@ class FrameExtractionTool(Tool):
     def __init__(self, config: Dict[str, Any]):
         """Initialize the FrameExtractionTool."""
         self.config = config.get("video", {})  # Get nested "video" part of config
-        self.extractor = DefaultFrameExtractor()
 
     def use(self, video_path: str) -> str:
-        """Extract frames from the video."""
+        """
+        Extract frames from the video.
+        
+        Args:
+            video_path: Path to the video file
+            
+        Returns:
+            String representation of the extracted frames
+            
+        Raises:
+            ToolError: If frame extraction fails
+        """
         try:
-            frames = self.extractor.extract_frames(
+            frames = extract_frames(
                 video_path=video_path,
                 interval_seconds=self.config.get("frame_interval", 10),
                 detect_scenes=self.config.get("detect_scenes", True),
@@ -33,7 +42,7 @@ class FrameExtractionTool(Tool):
                 start_time=self.config.get("start_time", 0.0),
                 end_time=self.config.get("end_time", 0.0)
             )
-            # Serialize the list of Frame objects to JSON
+            # Return the frames as a string representation
             return str([frame.model_dump() for frame in frames])
 
         except Exception as e:

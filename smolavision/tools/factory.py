@@ -1,13 +1,13 @@
 # smolavision/tools/factory.py
 import logging
-from typing import Dict, Any, Type
+from typing import Dict, Any, Type, Optional
 from smolavision.tools.base import Tool
 from smolavision.tools.frame_extraction import FrameExtractionTool
 from smolavision.tools.ocr_extraction import OCRExtractionTool
 from smolavision.tools.batch_creation import BatchCreationTool
 from smolavision.tools.vision_analysis import VisionAnalysisTool
 from smolavision.tools.summarization import SummarizationTool
-from smolavision.exceptions import ConfigurationError
+from smolavision.exceptions import ConfigurationError, ToolError
 
 logger = logging.getLogger(__name__)
 
@@ -41,18 +41,47 @@ class ToolFactory:
         Create a tool instance based on the tool name and configuration.
 
         Args:
-            config: Configuration dictionary.
-            tool_name: Name of the tool to create.
+            config: Configuration dictionary
+            tool_name: Name of the tool to create
 
         Returns:
-            A tool instance.
+            A tool instance
 
         Raises:
-            ConfigurationError: If the tool is not supported.
+            ConfigurationError: If the tool is not supported
+            ToolError: If tool creation fails
         """
-        if tool_name in cls._tool_registry:
-            tool_class = cls._tool_registry[tool_name]
-            logger.debug(f"Creating tool: {tool_name}")
-            return tool_class(config)
-        else:
+        if tool_name not in cls._tool_registry:
+            logger.error(f"Unsupported tool: {tool_name}")
             raise ConfigurationError(f"Unsupported tool: {tool_name}")
+        
+        try:
+            tool_class = cls._tool_registry[tool_name]
+            logger.info(f"Creating tool: {tool_name}")
+            return tool_class(config)
+        except Exception as e:
+            logger.exception(f"Failed to create tool: {tool_name}")
+            raise ToolError(f"Failed to create tool {tool_name}: {e}") from e
+
+    @classmethod
+    def list_available_tools(cls) -> Dict[str, str]:
+        """
+        List all available tools with their descriptions.
+        
+        Returns:
+            Dictionary mapping tool names to their descriptions
+        """
+        tools = {}
+        for tool_name, tool_class in cls._tool_registry.items():
+            # Create a temporary instance to get the description
+            # This is not ideal but works for simple tools
+            try:
+                description = tool_class.description
+                if isinstance(description, str):
+                    tools[tool_name] = description
+                else:
+                    tools[tool_name] = "No description available"
+            except:
+                tools[tool_name] = "No description available"
+        
+        return tools
