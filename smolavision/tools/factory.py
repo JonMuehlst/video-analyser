@@ -1,6 +1,6 @@
 # smolavision/tools/factory.py
 import logging
-from typing import Dict, Any
+from typing import Dict, Any, Type
 from smolavision.tools.base import Tool
 from smolavision.tools.frame_extraction import FrameExtractionTool
 from smolavision.tools.ocr_extraction import OCRExtractionTool
@@ -13,9 +13,30 @@ logger = logging.getLogger(__name__)
 
 class ToolFactory:
     """Factory class for creating tool instances."""
+    
+    # Tool registry mapping tool names to their classes
+    _tool_registry: Dict[str, Type[Tool]] = {
+        "frame_extraction": FrameExtractionTool,
+        "ocr_extraction": OCRExtractionTool,
+        "batch_creation": BatchCreationTool,
+        "vision_analysis": VisionAnalysisTool,
+        "summarization": SummarizationTool
+    }
 
-    @staticmethod
-    def create_tool(config: Dict[str, Any], tool_name: str) -> Tool:
+    @classmethod
+    def register_tool(cls, tool_name: str, tool_class: Type[Tool]) -> None:
+        """
+        Register a new tool class.
+        
+        Args:
+            tool_name: Name of the tool
+            tool_class: Tool class to register
+        """
+        cls._tool_registry[tool_name] = tool_class
+        logger.debug(f"Registered tool: {tool_name}")
+
+    @classmethod
+    def create_tool(cls, config: Dict[str, Any], tool_name: str) -> Tool:
         """
         Create a tool instance based on the tool name and configuration.
 
@@ -29,15 +50,9 @@ class ToolFactory:
         Raises:
             ConfigurationError: If the tool is not supported.
         """
-        if tool_name == "frame_extraction":
-            return FrameExtractionTool(config)
-        elif tool_name == "ocr_extraction":
-            return OCRExtractionTool(config)
-        elif tool_name == "batch_creation":
-            return BatchCreationTool(config)
-        elif tool_name == "vision_analysis":
-            return VisionAnalysisTool(config)
-        elif tool_name == "summarization":
-            return SummarizationTool(config)
+        if tool_name in cls._tool_registry:
+            tool_class = cls._tool_registry[tool_name]
+            logger.debug(f"Creating tool: {tool_name}")
+            return tool_class(config)
         else:
             raise ConfigurationError(f"Unsupported tool: {tool_name}")

@@ -1,0 +1,65 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "smolavision"
+version = "0.1.0"
+description = "Video analysis using AI vision models"
+readme = "README.md"
+authors = [
+    {name = "SmolaVision Team"}
+]
+license = {text = "MIT"}
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+requires-python = ">=3.9"
+dependencies = [
+    "opencv-python>=4.5.0,<5.0.0",
+    "numpy>=1.20.0,<2.0.0",
+    "Pillow>=9.0.0,<12.0.0",
+    "scikit-image>=0.19.0",
+    "requests>=2.25.0,<3.0.0",
+    "python-dotenv>=0.19.0,<1.0.0",
+    "pytesseract>=0.3.8",
+    "anthropic>=0.5.0,<1.0.0",
+    "openai>=1.0.0,<2.0.0",
+    "litellm>=1.0.0",
+    "tqdm>=4.62.0,<5.0.0",
+    "httpx>=0.24.0",
+    "pydantic>=2.0.0",
+    "transformers>=4.30.0",
+    "ollama>=0.1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "black>=22.0.0",
+    "isort>=5.10.0",
+    "mypy>=0.9.0",
+]
+
+[project.scripts]
+smolavision = "smolavision.cli.main:main"
+
+[tool.setuptools]
+packages = ["smolavision"]
+
+[tool.black]
+line-length = 100
+target-version = ["py39"]
+
+[tool.isort]
+profile = "black"
+line_length = 100
+
+[tool.mypy]
+python_version = "3.9"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true

@@ -8,9 +8,52 @@ from datetime import timedelta
 from PIL import Image
 from smolavision.exceptions import VideoProcessingError
 from smolavision.video.types import Frame
+from smolavision.video.base import FrameExtractor
 
 logger = logging.getLogger(__name__)
 
+class DefaultFrameExtractor(FrameExtractor):
+    """Default implementation of the FrameExtractor interface."""
+    
+    def extract_frames(
+        self,
+        video_path: str,
+        interval_seconds: int = 10,
+        detect_scenes: bool = True,
+        scene_threshold: float = 30.0,
+        resize_width: Optional[int] = None,
+        start_time: float = 0.0,
+        end_time: float = 0.0
+    ) -> List[Frame]:
+        """
+        Extract frames from a video file at regular intervals and detect scene changes.
+        
+        Args:
+            video_path: Path to the video file
+            interval_seconds: Extract a frame every N seconds
+            detect_scenes: Whether to detect scene changes
+            scene_threshold: Threshold for scene change detection
+            resize_width: Width to resize frames to (keeps aspect ratio)
+            start_time: Start time in seconds (0 for beginning)
+            end_time: End time in seconds (0 for entire video)
+            
+        Returns:
+            List of extracted frames
+            
+        Raises:
+            VideoProcessingError: If video processing fails
+        """
+        return extract_frames(
+            video_path=video_path,
+            interval_seconds=interval_seconds,
+            detect_scenes=detect_scenes,
+            scene_threshold=scene_threshold,
+            resize_width=resize_width,
+            start_time=start_time,
+            end_time=end_time
+        )
+
+# Function for backward compatibility and direct usage
 def extract_frames(
     video_path: str,
     interval_seconds: int = 10,

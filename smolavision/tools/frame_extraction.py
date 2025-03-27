@@ -2,7 +2,7 @@
 import logging
 from typing import Dict, Any
 from smolavision.tools.base import Tool
-from smolavision.video.extractor import extract_frames
+from smolavision.video.extractor import DefaultFrameExtractor
 from smolavision.config.schema import VideoConfig
 from smolavision.exceptions import ToolError
 
@@ -19,11 +19,12 @@ class FrameExtractionTool(Tool):
     def __init__(self, config: Dict[str, Any]):
         """Initialize the FrameExtractionTool."""
         self.config = config.get("video", {})  # Get nested "video" part of config
+        self.extractor = DefaultFrameExtractor()
 
     def use(self, video_path: str) -> str:
         """Extract frames from the video."""
         try:
-            frames = extract_frames(
+            frames = self.extractor.extract_frames(
                 video_path=video_path,
                 interval_seconds=self.config.get("frame_interval", 10),
                 detect_scenes=self.config.get("detect_scenes", True),

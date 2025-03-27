@@ -15,7 +15,7 @@ import ollama
 # Import from the new package structure
 from smolavision.pipeline import run_smolavision
 from smolavision.config import create_default_config
-from smolavision.logging import configure_logging
+from smolavision.logging import setup_logging as configure_logging
 
 # Load environment variables from .env file
 dotenv.load_dotenv(Path(__file__).parent / '.env')
