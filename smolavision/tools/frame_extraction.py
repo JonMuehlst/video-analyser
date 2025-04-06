@@ -13,7 +13,7 @@ class FrameExtractionTool(Tool):
     name: str = "frame_extraction"
     description: str = "Extract frames from a video at specified intervals. Specify path to video."
     input_type: str = "video_path"
-    output_type: str = "list[Frame]"
+    output_type: str = "List[Dict[str, Any]]" # Output is now a list of dicts
 
     def __init__(self, config: Dict[str, Any]):
         """Initialize the FrameExtractionTool."""
@@ -42,8 +42,8 @@ class FrameExtractionTool(Tool):
                 start_time=self.config.get("start_time", 0.0),
                 end_time=self.config.get("end_time", 0.0)
             )
-            # Return the frames as a string representation
-            return str([frame.model_dump() for frame in frames])
+            # Return the actual list of frame dictionaries
+            return [frame.model_dump() for frame in frames]
 
         except Exception as e:
             raise ToolError(f"Frame extraction failed: {e}") from e

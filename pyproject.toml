@@ -33,18 +33,32 @@ dependencies = [
     "pydantic>=2.0.0",
     "transformers>=4.30.0",
     "ollama>=0.1.0",
+    # Added missing core dependencies based on setup.py/requirements.txt review
+    "litellm>=1.0.0", # Was in requirements.txt and setup.py extra
 ]
 
 [project.optional-dependencies]
+# Replicated extras_require from setup.py
+ocr = ["pytesseract>=0.3.8"]
+anthropic = ["anthropic>=0.5.0,<1.0.0"]
+openai = ["openai>=1.0.0,<2.0.0"]
+# Note: ollama dependencies (litellm, ollama) are now in core dependencies
 dev = [
     "pytest>=7.0.0",
     "black>=22.0.0",
     "isort>=5.10.0",
     "mypy>=0.9.0",
 ]
+all = [
+    "smolavision[ocr,anthropic,openai,dev]" # Combined extra
+]
 
 [project.scripts]
 smolavision = "smolavision.cli.main:main"
+
+# Ensure other project metadata is present (matching setup.py)
+[project.urls]
+Homepage = "https://github.com/yourusername/summarize-video" # Replace with actual URL if available
 
 [tool.setuptools]
 packages = ["smolavision"]

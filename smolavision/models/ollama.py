@@ -249,7 +249,8 @@ class OllamaModel(ModelInterface):
             ModelError: If text generation fails
         """
         # For now, we'll use the synchronous version
-        # In a real implementation, this would be fully asynchronous
+        # TODO: Implement true async request using self.async_client
+        logger.warning("Using synchronous call within async method generate_text_async")
         return self.generate_text(prompt, **kwargs)
 
     async def analyze_images_async(self, images: List[str], prompt: str, max_tokens: int = 4096, **kwargs) -> str:
@@ -268,6 +269,6 @@ class OllamaModel(ModelInterface):
         Raises:
             ModelError: If image analysis fails
         """
-        # For now, we'll use the synchronous version
-        # In a real implementation, this would be fully asynchronous
+        # TODO: Implement true async request using self.async_client
+        logger.warning("Using synchronous call within async method analyze_images_async")
         return self.analyze_images(images, prompt, max_tokens, **kwargs)

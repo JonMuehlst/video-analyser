@@ -227,35 +227,23 @@ Run the pipeline on a video.
 **Returns:**
 - Dict[str, Any]: Dictionary with analysis results
 
-## Tools
+## Tools (Internal Components)
+
+*Note: Tools are primarily used internally by pipelines. Direct usage is less common.*
 
 ### `smolavision.tools.factory`
 
 #### `ToolFactory.create_tool(config, tool_name)`
 
-Create a tool instance based on the tool name and configuration.
-
-**Parameters:**
-- `config` (Dict[str, Any]): Configuration dictionary
-- `tool_name` (str): Name of the tool to create
-
-**Returns:**
-- Tool: A tool instance
+Creates a tool instance for internal pipeline use.
 
 ### `smolavision.tools.base.Tool`
 
-Abstract base class for all tools.
+Abstract base class for internal tools.
 
 #### `use(*args, **kwargs)`
 
-Execute the tool.
-
-**Parameters:**
-- `*args`: Tool-specific positional arguments
-- `**kwargs`: Tool-specific keyword arguments
-
-**Returns:**
-- Any: Tool-specific output
+Executes the tool's specific logic.
 
 ## Output
 

@@ -28,214 +28,95 @@ logging.basicConfig(
 )
 logger = logging.getLogger("SmolaVision")
 
-def check_ollama_installed():
-    """Check if Ollama is installed and running"""
-    try:
-        import subprocess
+# Use functions from the package instead of local implementations
+from smolavision.utils.dependency_checker import (
+    check_ollama_installed,
+    check_ollama_running,
+    list_ollama_models
+)
+from smolavision.utils.ollama_setup import setup_ollama_models
 
-        # Check if Ollama is installed
-        try:
-            result = subprocess.run(["which", "ollama"], capture_output=True, text=True)
-            if result.returncode != 0:
-                logger.error("Ollama is not installed. Please install it from https://ollama.com")
-                return False
-        except Exception:
-            # On Windows, try where instead of which
-            try:
-                result = subprocess.run(["where", "ollama"], capture_output=True, text=True)
-                if result.returncode != 0:
-                    logger.error("Ollama is not installed. Please install it from https://ollama.com")
-                    return False
-            except Exception:
-                logger.error("Ollama is not installed. Please install it from https://ollama.com")
-                return False
+def check_and_setup_ollama(base_url="http://localhost:11434"):
+    """Check Ollama installation, server status, and required models."""
+    logger.info("Checking Ollama setup...")
 
-        # Check if Ollama is running
-        try:
-            import requests
-            response = requests.get("http://localhost:11434/api/tags", timeout=2)
-            if response.status_code != 200:
-                logger.error("Ollama is installed but not running. Please start it with 'ollama serve'")
-                return False
-        except Exception:
-            logger.error("Ollama is installed but not running. Please start it with 'ollama serve'")
-            return False
-
-        return True
-    except ImportError:
-        logger.error("Required package 'requests' is not installed. Please install it with 'pip install requests'")
+    if not check_ollama_installed():
+        logger.error("Ollama is not installed. Please install it from https://ollama.com")
         return False
 
-def check_ollama_models(ollama_config):
-    """Check if required Ollama models are available, pull if not"""
+    if not check_ollama_running(base_url):
+        logger.error(f"Ollama server is not running or not reachable at {base_url}.")
+        logger.error("Please start the Ollama server (e.g., run 'ollama serve') and try again.")
+        return False
+
+    logger.info("Ollama installed and server is running.")
+
+    # Define preferred models (can be adjusted)
+    preferred_text_models = ["phi3:mini", "llama3", "mistral:7b"]
+    preferred_vision_models = ["llava", "bakllava:7b"]
+
     try:
-        # First check if Ollama is installed and running
-        if not check_ollama_installed():
-            return False
+        available = list_ollama_models(base_url)
+        logger.info(f"Available Ollama models: {available}")
 
-        from ollama_client import OllamaClient
+        # Determine which models to check/pull
+        models_to_ensure = []
+        text_model_available = False
+        for model in preferred_text_models:
+            if model in available:
+                logger.info(f"Found preferred text model: {model}")
+                text_model_available = True
+                break
+        if not text_model_available:
+            models_to_ensure.append(preferred_text_models[0]) # Add the first preferred text model
 
-        client = OllamaClient(base_url=ollama_config.base_url)
+        vision_model_available = False
+        for model in preferred_vision_models:
+            if model in available:
+                logger.info(f"Found preferred vision model: {model}")
+                vision_model_available = True
+                break
+        if not vision_model_available:
+             models_to_ensure.append(preferred_vision_models[0]) # Add the first preferred vision model
 
-        # Check connection to Ollama
-        if not client._check_connection():
-            logger.error(f"Cannot connect to Ollama at {ollama_config.base_url}")
-            logger.error("Please make sure Ollama is running with 'ollama serve'")
-            return False
-
-        # Get available models
-        available_models = client.list_models()
-        logger.info(f"Available Ollama models: {', '.join(available_models) if available_models else 'None'}")
-
-        # Check if required models are available
-        required_models = [
-            ollama_config.model_name,
-            ollama_config.vision_model
-        ]
-
-        missing_models = [model for model in required_models if model not in available_models]
-
-        if missing_models:
-            logger.warning(f"Missing required models: {', '.join(missing_models)}")
-            logger.warning("Do you want to pull the missing models now? (y/n)")
-            choice = input().lower()
-
-            if choice == 'y' or choice == 'yes':
-                for model in missing_models:
-                    logger.info(f"Pulling model: {model}...")
-                    if client.pull_model(model):
-                        logger.info(f"Successfully pulled model: {model}")
-                    else:
-                        logger.error(f"Failed to pull model: {model}")
-                        return False
-            else:
-                logger.warning("Please install the missing models manually with:")
-                for model in missing_models:
-                    logger.warning(f"  ollama pull {model}")
+        if models_to_ensure:
+            logger.warning(f"Required models missing: {models_to_ensure}. Attempting to pull...")
+            if not setup_ollama_models(models=models_to_ensure, base_url=base_url):
+                logger.error("Failed to pull required Ollama models.")
                 return False
-
-        return True
-    except ImportError:
-        logger.error("Required package 'requests' is not installed. Please install it with 'pip install requests'")
-        return False
-    except Exception as e:
-        logger.error(f"Error checking Ollama models: {str(e)}")
-        return False
-
-
-def check_ollama_server(base_url="http://localhost:11434", max_retries=3):
-    """Check if Ollama server is running and wait if it's starting up"""
-    print("Checking Ollama server connection...")
-
-    for attempt in range(max_retries):
-        try:
-            # Try direct API call first (more reliable)
-            response = requests.get(f"{base_url}/api/tags", timeout=5)
-            if response.status_code == 200:
-                print("✓ Connected to Ollama server successfully")
-                return True
-                
-            # Fallback to using the ollama client library
-            client = ollama.Client(host=base_url)
-            # Try to list models to verify connection
-            models_response = client.list()
-            print("✓ Connected to Ollama server successfully")
-            return True
-        except Exception as e:
-            print(f"Attempt {attempt+1}/{max_retries}: Ollama server not responding at {base_url}")
-            print(f"Error: {str(e)}")
-
-        if attempt < max_retries - 1:
-            print("Waiting for Ollama server to start (5 seconds)...")
-            time.sleep(5)
-
-    print("\nERROR: Could not connect to Ollama server.")
-    print("Please make sure Ollama is installed and running:")
-    print("1. Install Ollama from https://ollama.com/")
-    print("2. Start the Ollama server")
-    print("3. Run this script again\n")
-    return False
-
-def check_required_models(base_url="http://localhost:11434"):
-    """Check if required models are available and suggest pulling them if not"""
-    # Define alternative models for each category
-    text_models = ["phi3:mini", "llama3", "mistral:7b", "gemma:2b", "tinyllama:1.1b"]
-    vision_models = ["llava", "bakllava:7b", "llava:7b", "llava:13b"]
-    
-    available_models = []
-
-    try:
-        # Use direct API call (more reliable)
-        import requests
-        response = requests.get(f"{base_url}/api/tags", timeout=5)
-        if response.status_code == 200:
-            available_models = [m["name"] for m in response.json().get("models", [])]
+            logger.info("Successfully pulled required models.")
         else:
-            # Fallback to using the ollama client library
-            client = ollama.Client(host=base_url)
-            models_response = client.list()
+            logger.info("Required Ollama models are available.")
 
-            # Handle different response formats
-            if isinstance(models_response, dict) and 'models' in models_response:
-                # New format
-                if isinstance(models_response['models'], list):
-                    if models_response['models'] and isinstance(models_response['models'][0], dict):
-                        # Try to extract model names based on available keys
-                        if 'name' in models_response['models'][0]:
-                            available_models = [m['name'] for m in models_response['models']]
-                        elif 'model' in models_response['models'][0]:
-                            available_models = [m['model'] for m in models_response['models']]
-                        else:
-                            # Just use the first key as identifier
-                            first_key = next(iter(models_response['models'][0]))
-                            available_models = [m.get(first_key, str(m)) for m in models_response['models']]
-            elif isinstance(models_response, list):
-                # Direct list format
-                if models_response and isinstance(models_response[0], dict):
-                    if 'name' in models_response[0]:
-                        available_models = [m['name'] for m in models_response]
-                    elif 'model' in models_response[0]:
-                        available_models = [m['model'] for m in models_response]
-                    else:
-                        # Just use the first key as identifier
-                        first_key = next(iter(models_response[0]))
-                        available_models = [m.get(first_key, str(m)) for m in models_response]
+        return True
+
     except Exception as e:
-        print(f"Could not check available models: {str(e)}")
+        logger.error(f"Error during Ollama model check/setup: {e}")
         return False
 
-    # Check if we have at least one text model and one vision model
-    has_text_model = any(model in available_models for model in text_models)
-    has_vision_model = any(model in available_models for model in vision_models)
-    
-    missing_categories = []
-    if not has_text_model:
-        missing_categories.append(("text model", text_models))
-    if not has_vision_model:
-        missing_categories.append(("vision model", vision_models))
-
-    if missing_categories:
-        print("\nSome required model types are not available locally:")
-        for category, models in missing_categories:
-            print(f"  - Missing {category}. Need at least one of: {', '.join(models)}")
-
-        print("\nYou can pull these models with the following commands:")
-        for category, models in missing_categories:
-            # Suggest the smallest model in each category
-            suggested_model = models[0]
-            print(f"  ollama pull {suggested_model}  # {category}")
-        print()
-
-        return False
-
-    print(f"Available models: {', '.join(available_models)}")
-    return True
+def get_available_model(preferred_models: list, available_models: list, default_model: str) -> str:
+    """Select the best available model from a preferred list."""
+    for model in preferred_models:
+        if model in available_models:
+            return model
+    # Fallback if no preferred models are available
+    if available_models:
+         # Try to find *any* model of the right type (simple check)
+         if "llava" in default_model.lower(): # Check if it's a vision model default
+             vision_fallback = next((m for m in available_models if "llava" in m.lower()), None)
+             if vision_fallback: return vision_fallback
+         else: # Assume text model default
+             text_fallback = next((m for m in available_models if "llava" not in m.lower()), None)
+             if text_fallback: return text_fallback
+         # If no type match, return first available
+         return available_models[0]
+    return default_model # Return default if nothing is available
 
 def main():
     """Run SmolaVision with local Ollama models"""
-    # Check if Ollama server is running
-    if not check_ollama_server():
-        return
+    # Check Ollama setup first
+    if not check_and_setup_ollama():
+         sys.exit(1)
 
     parser = argparse.ArgumentParser(description="Run SmolaVision with local Ollama models")
 
@@ -260,166 +141,56 @@ def main():
 
     args = parser.parse_args()
 
-    # Check for required Python packages
-    try:
-        import cv2
-        import numpy as np
-        import requests
-    except ImportError as e:
-        logger.error(f"Missing required package: {str(e)}")
-        logger.error("Please install required packages with: pip install opencv-python numpy requests")
-        return
-
-    # If just checking dependencies, exit after checks
-    if args.check_dependencies:
-        if check_ollama_installed():
-            logger.info("All dependencies are installed correctly.")
-        return
-
     # Create configuration with Ollama enabled
     config = create_default_config()
-    
-    # Configure for Ollama with smaller models suitable for 12GB VRAM (3060)
-    model_config = config["model"]
-    model_config.model_type = "ollama"  # This tells the system to use Ollama
-    model_config.ollama.enabled = True
-    model_config.ollama.base_url = "http://localhost:11434"
-    model_config.api_key = None  # Ensure we don't try to use any API keys
 
-    # Add small models configuration if not present
-    if not hasattr(model_config.ollama, "small_models"):
-        model_config.ollama.small_models = {
-            "text": "phi3:mini",
-            "vision": "llava",
-            "fast": "phi3:mini"
-        }
+    # --- Configure for Ollama ---
+    config["model"]["model_type"] = "ollama"
+    config["model"]["ollama"]["enabled"] = True
+    config["model"]["ollama"]["base_url"] = "http://localhost:11434" # Default, can be overridden by env/args
+    config["model"]["api_key"] = None # Ensure no cloud API key is used
 
-    # Make sure we don't try to use any cloud APIs
-    # First remove any existing keys
-    os.environ.pop("ANTHROPIC_API_KEY", None)
-    os.environ.pop("OPENAI_API_KEY", None)
-    os.environ.pop("HF_TOKEN", None)
+    # --- Determine best available local models ---
+    ollama_base_url = config["model"]["ollama"]["base_url"]
+    available_models = list_ollama_models(ollama_base_url)
 
-    # Set empty environment variables to prevent any API calls
-    # This ensures libraries don't try to use default credentials
-    os.environ["ANTHROPIC_API_KEY"] = "none"
-    os.environ["OPENAI_API_KEY"] = "none"
-    os.environ["HF_TOKEN"] = "none"
+    # Preferred models (can be customized)
+    preferred_text_models = ["phi3:mini", "llama3", "mistral:7b"]
+    preferred_vision_models = ["llava", "bakllava:7b"]
 
-    # Disable any potential auto-authentication
-    os.environ["HUGGINGFACE_HUB_DISABLE_IMPLICIT_TOKEN"] = "1"
-    os.environ["HUGGINGFACE_HUB_DISABLE_TELEMETRY"] = "1"
+    # Select models
+    config["model"]["ollama"]["model_name"] = get_available_model(
+        preferred_text_models, available_models, "phi3:mini"
+    )
+    config["model"]["ollama"]["vision_model"] = get_available_model(
+        preferred_vision_models, available_models, "llava"
+    )
 
-    # Check available models and set appropriate defaults
-    try:
-        # Use direct API call (more reliable)
-        import requests
-        response = requests.get(f"{model_config.ollama.base_url}/api/tags", timeout=5)
-        
-        available_models = []
-        if response.status_code == 200:
-            available_models = [m["name"] for m in response.json().get("models", [])]
-        else:
-            # Fallback to using the ollama client library
-            client = ollama.Client(host=model_config.ollama.base_url)
-            models_response = client.list()
+    # Override with command-line args if provided
+    if args.text_model:
+        config["model"]["ollama"]["model_name"] = args.text_model
+    if args.vision_model:
+        config["model"]["ollama"]["vision_model"] = args.vision_model
 
-            # Handle different response formats
-            if isinstance(models_response, dict) and 'models' in models_response:
-                # New format
-                if isinstance(models_response['models'], list):
-                    if models_response['models'] and isinstance(models_response['models'][0], dict):
-                        # Try to extract model names based on available keys
-                        if 'name' in models_response['models'][0]:
-                            available_models = [m['name'] for m in models_response['models']]
-                        elif 'model' in models_response['models'][0]:
-                            available_models = [m['model'] for m in models_response['models']]
-                        else:
-                            # Just use the first key as identifier
-                            first_key = next(iter(models_response['models'][0]))
-                            available_models = [m.get(first_key, str(m)) for m in models_response['models']]
-            elif isinstance(models_response, list):
-                # Direct list format
-                if models_response and isinstance(models_response[0], dict):
-                    if 'name' in models_response[0]:
-                        available_models = [m['name'] for m in models_response]
-                    elif 'model' in models_response[0]:
-                        available_models = [m['model'] for m in models_response]
-                    else:
-                        # Just use the first key as identifier
-                        first_key = next(iter(models_response[0]))
-                        available_models = [m.get(first_key, str(m)) for m in models_response]
+    logger.info(f"Using Ollama text model: {config['model']['ollama']['model_name']}")
+    logger.info(f"Using Ollama vision model: {config['model']['ollama']['vision_model']}")
 
-        # Define model categories
-        text_models = ["phi3:mini", "llama3", "mistral:7b", "gemma:2b", "tinyllama:1.1b"]
-        vision_models = ["llava", "bakllava:7b", "llava:7b", "llava:13b"]
-        
-        # Set text model based on availability
-        text_model_found = False
-        for preferred_model in text_models:
-            if preferred_model in available_models:
-                model_config.ollama.model_name = preferred_model
-                text_model_found = True
-                break
-                
-        if not text_model_found:
-            # Use the first available model as fallback
-            if available_models:
-                model_config.ollama.model_name = available_models[0]
-                print(f"No preferred text models found. Using {available_models[0]} instead.")
-            else:
-                model_config.ollama.model_name = "phi3:mini"  # Default, will prompt to pull
-                print("No models found. Will try to use phi3:mini (needs to be pulled).")
+    # --- Configure video processing from args ---
+    config["video"]["language"] = args.language
+    config["video"]["frame_interval"] = args.frame_interval
+    config["video"]["detect_scenes"] = True # Defaulting to True for local runs
+    config["video"]["scene_threshold"] = 20.0 # Adjusted default
+    config["video"]["enable_ocr"] = args.enable_ocr
+    config["video"]["start_time"] = args.start_time
+    config["video"]["end_time"] = args.start_time + args.duration if args.duration > 0 else 0
 
-        # Set vision model based on availability - prioritize llava
-        vision_model_found = False
-        for preferred_model in vision_models:
-            if preferred_model in available_models:
-                model_config.ollama.vision_model = preferred_model
-                vision_model_found = True
-                break
-                
-        if not vision_model_found:
-            # Use the first available vision model as fallback
-            vision_models_available = [m for m in available_models if "llava" in m.lower()]
-            if vision_models_available:
-                model_config.ollama.vision_model = vision_models_available[0]
-                print(f"Using vision model: {vision_models_available[0]}")
-            else:
-                model_config.ollama.vision_model = "llava"  # Default, will prompt to pull
-                print("No vision models found. Will try to use llava (needs to be pulled).")
+    # --- Configure analysis from args ---
+    config["analysis"]["mission"] = args.mission
+    config["analysis"]["generate_flowchart"] = args.generate_flowchart
+    # Optional: Adjust batch sizes for local models if needed
+    # config["analysis"]["max_images_per_batch"] = 5
 
-    except Exception as e:
-        print(f"Warning: Could not check available models: {str(e)}")
-        # Use defaults from small_models
-        model_config.ollama.model_name = model_config.ollama.small_models["text"]
-        model_config.ollama.vision_model = model_config.ollama.small_models["vision"]
-
-    print(f"Using text model: {model_config.ollama.model_name}")
-    print(f"Using vision model: {model_config.ollama.vision_model}")
-
-    # Check if required models are available
-    check_required_models()
-    
-    # Configure video processing
-    video_config = config["video"]
-    video_config.language = args.language
-    video_config.frame_interval = args.frame_interval
-    video_config.detect_scenes = True
-    video_config.scene_threshold = 20.0
-    video_config.enable_ocr = args.enable_ocr
-    video_config.start_time = args.start_time
-    video_config.end_time = args.start_time + args.duration if args.duration > 0 else 0
-    video_config.mission = args.mission
-    video_config.generate_flowchart = args.generate_flowchart
-
-    # Check if Ollama is running and has required models
-    if not check_ollama_models(model_config.ollama):
-        logger.error("Ollama setup incomplete. Please install required models and try again.")
-        logger.error("You can run this script with --check-dependencies to verify your setup.")
-        return
-    
-    # Get video path from command line or prompt user
+    # --- Get video path ---
     video_path = args.video_path
     if not video_path:
         video_path = input("Enter path to video file: ")
@@ -431,34 +202,35 @@ def main():
         print("python run_local.py \"path/to/your/video.mp4\"")
         return
     
-    # Run SmolaVision
+    # --- Run SmolaVision ---
     logger.info(f"Starting analysis of video: {video_path}")
-    logger.info(f"Using text model: {model_config.ollama.model_name}")
-    logger.info(f"Using vision model: {model_config.ollama.vision_model}")
-
-    if args.duration > 0:
-        logger.info(f"Processing from {args.start_time}s to {args.start_time + args.duration}s")
+    if config["video"]["end_time"] > 0:
+        logger.info(f"Processing from {config['video']['start_time']:.1f}s to {config['video']['end_time']:.1f}s")
     else:
-        logger.info(f"Processing from {args.start_time}s to the end")
+        logger.info(f"Processing from {config['video']['start_time']:.1f}s to the end")
 
-    result = run_smolavision(video_path=video_path, config=config)
+    try:
+        result = run_smolavision(video_path=video_path, config=config)
 
-    # Print result
-    if isinstance(result, dict):
-        if "error" in result:
-            logger.error(f"Error: {result['error']}")
+        # --- Print result ---
+        if isinstance(result, dict):
+            print("\n--- Analysis Summary ---")
+            print(result.get("summary_text", "No summary generated."))
+            print("------------------------")
+            print(f"Results saved to directory: {result.get('output_dir', 'N/A')}")
+            if result.get("summary_path"):
+                print(f"Summary file: {result['summary_path']}")
+            if result.get("full_analysis_path"):
+                print(f"Full analysis file: {result['full_analysis_path']}")
+            if result.get("flowchart_path"):
+                print(f"Flowchart file: {result['flowchart_path']}")
         else:
-            print("\nSummary of video:")
-            print("-" * 80)
-            print(result["summary_text"][:1000] + "..." if len(result["summary_text"]) > 1000 else result["summary_text"])
-            print("-" * 80)
-            print(f"Full summary saved to: {result['coherent_summary']}")
-            print(f"Full analysis saved to: {result['full_analysis']}")
+            logger.error(f"Analysis did not return expected results: {result}")
 
-            if "flowchart" in result:
-                print(f"Workflow flowchart saved to: {result['flowchart']}")
-    else:
-        logger.error(result)
+    except Exception as e:
+        logger.exception(f"An error occurred during SmolaVision execution: {e}")
+        print(f"\nERROR: Analysis failed. Check logs ({logger.handlers[-1].baseFilename}) for details.")
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()

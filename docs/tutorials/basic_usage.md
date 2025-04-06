@@ -142,10 +142,11 @@ smolavision --video path/to/your/video.mp4
 
 ## Viewing Results
 
-After running SmolaVision, you'll find the following files in the output directory:
+After running SmolaVision, check the `output/YYYYMMDDHHMM` directory (or your specified `--output-dir`) for the results:
 
-- `video_summary.txt`: A coherent summary of the video content
-- `video_analysis_full.txt`: The complete detailed analysis
-- `workflow_flowchart.mmd`: A Mermaid flowchart (if generated)
+- `summary.txt`: A coherent summary of the video content.
+- `full_analysis.txt`: The concatenated analysis text from all batches.
+- `analysis.txt` (or `.json`, `.html`, `.md`): Detailed results in the chosen format.
+- `flowchart.mmd`: A Mermaid flowchart (if `--generate-flowchart` was used).
 
 You can view the Mermaid flowchart using the [Mermaid Live Editor](https://mermaid.live/) or any Markdown viewer that supports Mermaid.

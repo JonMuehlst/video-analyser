@@ -14,8 +14,8 @@ class BatchCreationTool(Tool):
 
     name: str = "batch_creation"
     description: str = "Create batches of frames for analysis, provide a list of frames to batch"
-    input_type: str = "list[Frame]"
-    output_type: str = "list[Batch]"
+    input_type: str = "List[Dict[str, Any]]" # Input is now list of dicts
+    output_type: str = "List[Dict[str, Any]]" # Output is now list of dicts
 
     def __init__(self, config: Dict[str, Any]):
         """
@@ -64,8 +64,8 @@ class BatchCreationTool(Tool):
             
             logger.info(f"Created {len(batches)} batches")
             
-            # Convert batches to dictionaries and return as string
-            return str([batch.model_dump() for batch in batches])
+            # Return the actual list of batch dictionaries
+            return [batch.model_dump() for batch in batches]
             
         except Exception as e:
             logger.exception("Error during batch creation")

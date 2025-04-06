@@ -13,8 +13,8 @@ class OCRExtractionTool(Tool):
 
     name: str = "ocr_extraction"
     description: str = "Extract text from a list of video frames using OCR. Requires a list of frames"
-    input_type: str = "list[Frame]"
-    output_type: str = "list[Frame]"
+    input_type: str = "List[Dict[str, Any]]" # Input is now list of dicts
+    output_type: str = "List[Dict[str, Any]]" # Output is now list of dicts
 
     def __init__(self, config: Dict[str, Any]):
         """Initialize the OCRExtractionTool."""
@@ -43,8 +43,8 @@ class OCRExtractionTool(Tool):
             
             extracted_frames = extract_text(typed_frames, language=language)
             
-            # Serialize results
-            return str([frame.model_dump() for frame in extracted_frames])
+            # Return the actual list of frame dictionaries
+            return [frame.model_dump() for frame in extracted_frames]
             
         except OCRProcessingError as e:
             logger.error(f"OCR processing error: {e}")

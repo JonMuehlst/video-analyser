@@ -100,7 +100,13 @@ flowchart TD
 
 ## Step 3: Using a Local Model
 
-If you want to analyze the video offline or avoid API costs, you can use a local model with Ollama:
+If you want to analyze the video offline or avoid API costs, you can use a local model with Ollama. First, ensure the models are installed:
+
+```bash
+smolavision setup-ollama --models llama3,llava
+```
+
+Then run the analysis:
 
 ```bash
 smolavision --video carbonara_tutorial.mp4 --mission workflow --generate-flowchart --model-type ollama --ollama-enabled --ollama-model llama3 --ollama-vision-model llava
@@ -114,12 +120,15 @@ You can customize the analysis to focus on specific aspects of the workflow:
 smolavision --video carbonara_tutorial.mp4 --mission workflow --generate-flowchart --custom-prompt "Analyze this cooking tutorial with a focus on techniques and tools used. For each step, identify the cooking technique, tools used, and approximate timing."
 ```
 
-## Step 5: Extracting Ingredient Quantities
+## Step 5: Extracting Ingredient Quantities (Requires Custom Prompt)
 
-If you want to extract ingredient quantities, you can enhance the OCR capabilities:
+If you want to extract ingredient quantities, you need to enable OCR and provide a custom prompt to the model:
 
 ```bash
-smolavision --video carbonara_tutorial.mp4 --mission workflow --enable-ocr --ocr-enhance --custom-prompt "Analyze this cooking tutorial and extract a detailed recipe with exact ingredient quantities and measurements. Create a structured recipe format with ingredients list and step-by-step instructions."
+# Note: --custom-prompt is not a standard CLI argument, this requires programmatic usage or modifying the analysis prompt generation logic.
+# Example CLI call enabling OCR:
+smolavision --video carbonara_tutorial.mp4 --mission workflow --enable-ocr
+# You would then need to modify smolavision/analysis/vision.py or use programmatically to add the custom prompt.
 ```
 
 ## Programmatic Usage

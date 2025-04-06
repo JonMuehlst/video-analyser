@@ -198,102 +198,10 @@ You can use different models for different parts of the pipeline:
 }
 ```
 
-### Custom Prompts
+### Custom Prompts (Programmatic)
 
-You can customize the prompts used for analysis by modifying the configuration:
+Customizing prompts currently requires modifying the prompt generation logic (e.g., in `smolavision/analysis/vision.py` or `smolavision/analysis/summarization.py`) or using the library programmatically and passing custom prompts directly to the model methods. There isn't a direct configuration file setting for arbitrary custom prompts in the current structure.
 
-```json
-{
-  "analysis": {
-    "mission": "custom",
-    "custom_prompts": {
-      "vision": "Analyze this video frame with a focus on {focus_area}. Describe what you see in detail.",
-      "summary": "Create a summary of the video focusing on {focus_area}. Include the following aspects: {aspects}."
-    },
-    "prompt_variables": {
-      "focus_area": "technical equipment",
-      "aspects": "types of equipment, usage patterns, technical specifications"
-    }
-  }
-}
-```
+*(The following sections describe features not currently implemented in the provided codebase)*
 
-### Parallel Processing
-
-For faster processing on multi-core systems, you can enable parallel processing:
-
-```json
-{
-  "processing": {
-    "parallel": true,
-    "max_workers": 4,
-    "batch_processing": true
-  }
-}
-```
-
-## Integration with Other Systems
-
-### Webhook Notifications
-
-You can configure SmolaVision to send webhook notifications when analysis is complete:
-
-```json
-{
-  "notifications": {
-    "webhook": {
-      "enabled": true,
-      "url": "https://example.com/webhook",
-      "events": ["analysis_complete", "error"]
-    }
-  }
-}
-```
-
-### Database Storage
-
-You can configure SmolaVision to store results in a database:
-
-```json
-{
-  "storage": {
-    "type": "database",
-    "connection_string": "postgresql://user:password@localhost/smolavision",
-    "table_prefix": "sv_"
-  }
-}
-```
-
-## Performance Tuning
-
-### Memory Optimization
-
-For processing large videos on systems with limited memory:
-
-```json
-{
-  "memory": {
-    "max_frames_in_memory": 100,
-    "frame_cache_size_mb": 500,
-    "clear_cache_between_segments": true
-  }
-}
-```
-
-### Processing Speed vs. Quality
-
-You can trade off processing speed for quality:
-
-```json
-{
-  "video": {
-    "frame_interval": 30,  // Extract fewer frames
-    "resize_width": 640,   // Use smaller images
-    "quality": "fast"      // Use faster processing options
-  },
-  "model": {
-    "max_tokens": 1024,    // Generate shorter responses
-    "temperature": 0.9     // Use higher temperature for faster generation
-  }
-}
-```
+*Note: The following configuration options (`processing`, `notifications`, `storage`, `memory`, `quality`) are illustrative examples of potential future features or advanced configurations but are **not supported** by the current codebase structure as provided.*

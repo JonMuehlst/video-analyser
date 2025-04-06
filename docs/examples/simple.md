@@ -80,7 +80,13 @@ flowchart TD
 
 ## Step 4: Using a Local Model
 
-If you want to analyze the video offline or avoid API costs, you can use a local model with Ollama:
+If you want to analyze the video offline or avoid API costs, you can use a local model with Ollama. First, ensure the models are installed:
+
+```bash
+smolavision setup-ollama --models llama3,llava
+```
+
+Then run the analysis:
 
 ```bash
 smolavision --video lecture.mp4 --model-type ollama --ollama-enabled --ollama-model llama3 --ollama-vision-model llava

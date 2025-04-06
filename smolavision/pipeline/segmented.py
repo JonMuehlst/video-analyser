@@ -57,11 +57,13 @@ class SegmentedPipeline(Pipeline):
             output_dir = os.path.join(self.config.get("output_dir", "output"), formatted_time)
             os.makedirs(output_dir, exist_ok=True)
             
-            # Get video duration
-            import cv2
-            video = cv2.VideoCapture(video_path)
-            fps = video.get(cv2.CAP_PROP_FPS)
-            frame_count = int(video.get(cv2.CAP_PROP_FRAME_COUNT))
+            # Get video duration using utility function
+            from smolavision.video.utils import get_video_duration # Import moved
+            duration = get_video_duration(video_path)
+            if duration is None:
+                 raise PipelineError(f"Could not determine duration of video: {video_path}")
+            # fps = video.get(cv2.CAP_PROP_FPS) # No longer needed here
+            # frame_count = int(video.get(cv2.CAP_PROP_FRAME_COUNT)) # No longer needed here
             duration = frame_count / fps
             video.release()
             
@@ -104,8 +106,8 @@ class SegmentedPipeline(Pipeline):
                 
                 # 1. Extract frames
                 logger.info(f"Extracting frames from segment {i+1}")
-                frames_str = frame_extraction_tool.use(video_path)
-                frames = eval(frames_str)  # Convert string representation back to list
+                # Tool now returns a list of dicts directly
+                frames: List[Dict[str, Any]] = frame_extraction_tool.use(video_path)
                 
                 # Skip if no frames extracted
                 if not frames:
@@ -115,13 +117,13 @@ class SegmentedPipeline(Pipeline):
                 # 2. Extract text with OCR if enabled
                 if self.video_config.get("enable_ocr", False) and ocr_tool:
                     logger.info(f"Extracting text with OCR for segment {i+1}")
-                    frames_str = ocr_tool.use(frames)
-                    frames = eval(frames_str)
+                    # Tool now returns a list of dicts directly
+                    frames = ocr_tool.use(frames)
                 
                 # 3. Create batches
                 logger.info(f"Creating batches for segment {i+1}")
-                batches_str = batch_tool.use(frames)
-                batches = eval(batches_str)
+                # Tool now returns a list of dicts directly
+                batches: List[Dict[str, Any]] = batch_tool.use(frames)
                 
                 # 4. Analyze batches
                 logger.info(f"Analyzing {len(batches)} batches for segment {i+1}")

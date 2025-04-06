@@ -52,14 +52,16 @@ Key components:
 - `StandardPipeline`: Standard video analysis pipeline
 - `SegmentedPipeline`: Pipeline for processing long videos in segments
 
-### 6. Tools
+### 6. Tools (Internal Component)
 
-The tools module provides a collection of tools that can be used to perform specific tasks in the analysis pipeline. Each tool is self-contained and has a well-defined interface.
+*Note: The `tools` module is primarily an internal implementation detail used by the pipelines. Direct interaction is typically done via the main pipeline or CLI.*
+
+The tools module provides a collection of components that perform specific tasks within the analysis pipeline.
 
 Key components:
-- `Tool`: Abstract base class for all tools
-- Tool implementations for frame extraction, OCR, batch creation, vision analysis, and summarization
-- `ToolFactory`: Factory for creating tool instances
+- `Tool`: Abstract base class for tools
+- Implementations for frame extraction, OCR, batch creation, vision analysis, and summarization
+- `ToolFactory`: Factory for creating tool instances used by pipelines
 
 ### 7. Output Generation
 
@@ -70,14 +72,14 @@ Key components:
 - File writing functions
 - Flowchart generation for workflow analysis
 
-## Data Flow
+## Data Flow (Standard Pipeline)
 
-1. Video input is processed by the `FrameExtractor` to extract frames at regular intervals
-2. If OCR is enabled, the `OCRExtractionTool` extracts text from the frames
-3. The `BatchCreationTool` groups frames into batches for efficient processing
-4. Each batch is analyzed by the `VisionAnalysisTool` using the selected AI model
-5. The `SummarizationTool` generates a coherent summary from the batch analyses
-6. Results are formatted and saved to the output directory
+1. Video input is processed by the `FrameExtractionTool` (via `smolavision.video.extractor`) to extract frames.
+2. If OCR is enabled, the `OCRExtractionTool` (via `smolavision.ocr.extractor`) extracts text from the frames.
+3. The `BatchCreationTool` (via `smolavision.batch.creator`) groups frames into batches.
+4. Each batch is analyzed by the `VisionAnalysisTool` (via `smolavision.analysis.vision`) using the selected AI model.
+5. The `SummarizationTool` (via `smolavision.analysis.summarization`) generates a coherent summary from the batch analyses.
+6. Results are formatted (`smolavision.output.formatter`) and saved (`smolavision.output.writer`) to the output directory.
 
 ## Configuration System
 

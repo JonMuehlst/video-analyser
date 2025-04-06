@@ -105,40 +105,5 @@ class Config:
             },
             "output_dir": self.output_dir,
         }
-    
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert config to dictionary."""
-        return {
-            "video": {
-                "language": self.video.language,
-                "frame_interval": self.video.frame_interval,
-                "detect_scenes": self.video.detect_scenes,
-                "scene_threshold": self.video.scene_threshold,
-                "enable_ocr": self.video.enable_ocr,
-                "start_time": self.video.start_time,
-                "end_time": self.video.end_time,
-                "resize_width": self.video.resize_width,
-            },
-            "model": {
-                "model_type": self.model.model_type,
-                "api_key": self.model.api_key,
-                "vision_model": self.model.vision_model,
-                "summary_model": self.model.summary_model,
-                "temperature": self.model.temperature,
-                "max_tokens": self.model.max_tokens,
-                "ollama": {
-                    "enabled": self.model.ollama.enabled,
-                    "base_url": self.model.ollama.base_url,
-                    "model_name": self.model.ollama.model_name,
-                    "vision_model": self.model.ollama.vision_model,
-                }
-            },
-            "analysis": {
-                "mission": self.analysis.mission,
-                "generate_flowchart": self.analysis.generate_flowchart,
-                "max_batch_size_mb": self.analysis.max_batch_size_mb,
-                "max_images_per_batch": self.analysis.max_images_per_batch,
-                "batch_overlap_frames": self.analysis.batch_overlap_frames,
-            },
-            "output_dir": self.output_dir,
-        }
+
+    # Removed duplicate to_dict method

@@ -50,44 +50,57 @@ class VisionAnalysisTool(Tool):
             
             if not typed_batches:
                 logger.warning("No batches provided for analysis")
+                logger.warning("No batches provided for analysis")
                 return "No batches to analyze"
             
-            # For simplicity, we'll analyze the first batch only
-            # In a real implementation, you might want to analyze all batches
-            batch = typed_batches[0]
-            
-            logger.info(f"Analyzing batch with {len(batch.image_data)} images")
-            
-            # Get analysis parameters from config
-            language = self.config.get("video", {}).get("language", "English")
-            mission = self.config.get("analysis", {}).get("mission", "general")
-            
-            # Create analysis request
-            request = AnalysisRequest(
-                batch_id=0,
-                frames=batch.frames,
-                timestamps=batch.timestamps,
-                image_data=batch.image_data,
-                ocr_text=batch.ocr_text if hasattr(batch, "ocr_text") else [],
-                previous_context=previous_context,
-                language=language,
-                mission=mission
-            )
-            
-            # Create prompt if not provided
-            if not prompt:
-                prompt = create_analysis_prompt(request)
-            
-            # Analyze images
-            result = self.model.analyze_images(
+            # Analyze ALL batches provided
+            all_analysis_texts = []
+            current_context = previous_context # Start with initial context
+
+            for i, batch_dict in enumerate(typed_batches):
+                batch = Batch(**batch_dict)
+                logger.info(f"Analyzing batch {i+1}/{len(typed_batches)} with {len(batch.image_data)} images")
+
+                # Get analysis parameters from config for this batch
+                language = self.config.get("video", {}).get("language", "English")
+                mission = self.config.get("analysis", {}).get("mission", "general")
+
+                # Create analysis request for the current batch
+                request = AnalysisRequest(
+                    batch_id=i, # Use the loop index for batch_id
+                    frames=batch.frames,
+                    timestamps=batch.timestamps,
+                    image_data=batch.image_data,
+                    ocr_text=batch.ocr_text if hasattr(batch, "ocr_text") else [],
+                    previous_context=current_context, # Use the updated context
+                    language=language,
+                    mission=mission
+                )
+
+                # Create prompt if not provided (use context from previous batch)
+                analysis_prompt = prompt if prompt else create_analysis_prompt(request)
+
+                # Analyze images for the current batch
+            analysis_text = self.model.analyze_images(
                 images=batch.image_data,
-                prompt=prompt,
-                max_tokens=4096
+                prompt=analysis_prompt,
+                max_tokens=4096 # Consider making this configurable
             )
-            
-            logger.info(f"Analysis completed, result length: {len(result)}")
-            return result
-            
+
+            # Extract context for the *next* batch
+            # Use a utility function if available, otherwise simple truncation
+            from smolavision.analysis.utils import extract_context
+            current_context = extract_context(analysis_text) # Update context for the next iteration
+
+            # Append analysis text for the current batch (correct indentation)
+            all_analysis_texts.append(analysis_text)
+            logger.debug(f"Batch {i+1} analysis completed, result length: {len(analysis_text)}")
+
+            # Combine results from all batches (simple concatenation for now) - Indented correctly
+            final_analysis = "\n\n--- Batch Break ---\n\n".join(all_analysis_texts)
+            logger.info(f"Completed analysis of {len(typed_batches)} batches. Total length: {len(final_analysis)}")
+            return final_analysis
+
         except ModelError as e:
             logger.error(f"Model error during vision analysis: {e}")
             raise ToolError(f"Vision analysis failed: {e}") from e

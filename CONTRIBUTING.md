@@ -25,11 +25,11 @@ Please be respectful and considerate of others when contributing to this project
 
 3. Install dependencies:
    ```bash
-   # Using pip
-   pip install -e ".[dev]"
+   # Using pip with pyproject.toml
+   pip install -e .[dev]
    
-   # Or using Poetry
-   poetry install
+   # If using Poetry (ensure pyproject.toml is compatible or use poetry init/add)
+   # poetry install --with dev
    ```
 
 4. Set up pre-commit hooks:

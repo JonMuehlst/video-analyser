@@ -42,39 +42,44 @@ SmolaVision supports running with local models via Ollama. For a 3060 GPU with 1
 
 ### Setup Local Models
 
-Run the setup script to download the models:
+Use the built-in command to check and pull required Ollama models:
 
-```
-python setup_ollama_models.py --all
+```bash
+smolavision setup-ollama --models llama3,llava
 ```
 
-Or download specific models:
+Or use the example script for more options:
 
-```
-python setup_ollama_models.py --vision --text
+```bash
+python examples/setup_ollama_models.py --all
 ```
 
 ### Run with Local Models
 
-Use the `run_local.py` script to analyze a video with local models:
+Use the `smolavision` command with Ollama options:
 
-```
-python run_local.py "path/to/your/video.mp4"
+```bash
+smolavision --video "path/to/your/video.mp4" --model-type ollama --ollama-enabled --ollama-model llama3 --ollama-vision-model llava
 ```
 
-This will use the smaller models configured for your GPU.
+You can also use the example script `examples/run_local.py` which is pre-configured for smaller models:
+
+```bash
+python examples/run_local.py "path/to/your/video.mp4"
+```
 
 ## Command Line Usage
 
-For more control, use the main script with specific options:
+Use the `smolavision` command:
 
-```
-python video_analysis.py --video "path/to/video.mp4" --ollama-enabled --start-time 0 --end-time 120
+```bash
+smolavision --video "path/to/video.mp4" [options]
 ```
 
-### Options
+### Common Options
 
 - `--video`: Path to the video file (required)
+- `--config`: Path to a JSON configuration file
 - `--language`: Language of text in the video (default: "Hebrew")
 - `--frame-interval`: Extract a frame every N seconds (default: 10)
 - `--detect-scenes`: Enable scene change detection
@@ -83,9 +88,13 @@ python video_analysis.py --video "path/to/video.mp4" --ollama-enabled --start-ti
 - `--end-time`: End time in seconds (default: 0 = entire video)
 - `--mission`: Analysis mission type ("general" or "workflow")
 - `--generate-flowchart`: Generate a workflow flowchart
-- `--ollama-enabled`: Use Ollama for local model inference
-- `--ollama-model`: Specify the Ollama text model
-- `--ollama-vision-model`: Specify the Ollama vision model
+- `--ollama-enabled`: Use Ollama for local model inference (sets model-type to ollama)
+- `--ollama-model`: Specify the Ollama text model (if using Ollama)
+- `--ollama-vision-model`: Specify the Ollama vision model (if using Ollama)
+- `--output-dir`: Directory to save results (default: output)
+- `--verbose`: Enable detailed logging
+
+Run `smolavision --help` for a full list of options.
 
 ## Memory Optimization Tips
 
@@ -98,7 +107,8 @@ When working with a 12GB GPU:
 
 ## Output
 
-The analysis results are saved to the `output` directory:
-- `video_analysis_full.txt`: Complete detailed analysis
-- `video_summary.txt`: Coherent summary of the video
-- `workflow_flowchart.mmd`: Mermaid flowchart (if generated)
+The analysis results are saved to a timestamped subdirectory within the `output` directory (or the directory specified by `--output-dir`):
+- `summary.txt`: Coherent summary of the video
+- `full_analysis.txt`: Concatenated analysis text from all batches
+- `analysis.json`/`.html`/`.md`/`.txt`: Full results in specified formats (default: `analysis.txt`)
+- `flowchart.mmd`: Mermaid flowchart (if generated)

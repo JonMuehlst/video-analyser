@@ -63,19 +63,19 @@ class StandardPipeline(Pipeline):
             
             # 1. Extract frames
             logger.info(f"Extracting frames from {video_path}")
-            frames_str = frame_extraction_tool.use(video_path)
-            frames = eval(frames_str)  # Convert string representation back to list
+            # Tool now returns a list of dicts directly
+            frames: List[Dict[str, Any]] = frame_extraction_tool.use(video_path)
             
             # 2. Extract text with OCR if enabled
             if self.video_config.get("enable_ocr", False) and ocr_tool:
                 logger.info("Extracting text with OCR")
-                frames_str = ocr_tool.use(frames)
-                frames = eval(frames_str)
+                # Tool now returns a list of dicts directly
+                frames = ocr_tool.use(frames)
             
             # 3. Create batches
             logger.info("Creating batches")
-            batches_str = batch_tool.use(frames)
-            batches = eval(batches_str)
+            # Tool now returns a list of dicts directly
+            batches: List[Dict[str, Any]] = batch_tool.use(frames)
             
             # 4. Analyze batches
             logger.info(f"Analyzing {len(batches)} batches")
