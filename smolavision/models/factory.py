@@ -129,7 +129,8 @@ class ModelFactory:
                 # Use GEMINI_API_KEY for LiteLLM
                 api_key = cls._get_api_key(config, "GEMINI_API_KEY")
                 # Pass model_id without 'gemini/' prefix, the class handles it
-                model_id = config.get("model_name", GeminiModel.DEFAULT_MODEL.split('/')[-1])
+                # Use the correct attribute DEFAULT_MODEL_ID
+                model_id = config.get("model_name", GeminiModel.DEFAULT_MODEL_ID)
                 return model_class(
                     api_key=api_key,
                     model_id=model_id,
