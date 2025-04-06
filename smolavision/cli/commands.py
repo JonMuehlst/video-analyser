@@ -129,11 +129,27 @@ def check_dependencies_command(args) -> int:
 
     Returns:
         Exit code (0 for success, non-zero for error)
+    Args:
+        args: Command line arguments (may include --config, --ollama-base-url)
+
+    Returns:
+        Exit code (0 for success, non-zero for error)
     """
     try:
         print("Checking SmolaVision dependencies...")
-        # TODO: Get ollama_base_url from config or args if needed
-        issues = check_all_dependencies()
+
+        # Load config to get the default ollama_base_url
+        # Pass args=None to avoid double-parsing, rely on args passed to this function
+        # Use args.config path if provided
+        config = load_config(config_path=args.config if hasattr(args, 'config') else None, args=args)
+
+        # Determine the Ollama base URL to use
+        # Priority: 1. --ollama-base-url from check command, 2. Config value, 3. Default
+        ollama_base_url = args.ollama_base_url if hasattr(args, 'ollama_base_url') and args.ollama_base_url else \
+                          config.get("model", {}).get("ollama", {}).get("base_url", "http://localhost:11434")
+
+        logger.info(f"Checking dependencies using Ollama base URL: {ollama_base_url}")
+        issues = check_all_dependencies(ollama_base_url=ollama_base_url)
 
         if issues:
             print_error("Dependency issues found:")

@@ -67,7 +67,7 @@ def create_parser() -> argparse.ArgumentParser:
 
     # Check dependencies command
     check_parser = subparsers.add_parser("check", help="Check dependencies")
-    # Add any specific args for check if needed
+    check_parser.add_argument("--ollama-base-url", help="Ollama server URL to check against (overrides config)")
 
     # Setup Ollama command
     setup_parser = subparsers.add_parser("setup-ollama", help="Setup Ollama models")
