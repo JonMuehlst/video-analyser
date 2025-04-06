@@ -16,12 +16,12 @@ logger = logging.getLogger(__name__)
 class GeminiModel(ModelInterface):
     """Implementation for Google Gemini models via LiteLLM."""
 
-    DEFAULT_MODEL = "gemini/gemini-1.5-flash-latest" # Default to a generally available model
-    DEFAULT_VISION_MODEL = "gemini/gemini-1.5-flash-latest" # Vision model
+    # Use flash as the default, user can override via config
+    DEFAULT_MODEL_ID = "gemini-1.5-flash-latest"
 
     def __init__(self,
                  api_key: str,
-                 model_id: str = "gemini-1.5-flash-latest", # Model name without 'gemini/' prefix
+                 model_id: str = DEFAULT_MODEL_ID, # Use the class constant
                  temperature: float = 0.7,
                  max_tokens: int = 4096,
                  **kwargs):
@@ -83,11 +83,9 @@ class GeminiModel(ModelInterface):
     def analyze_images(self, images: List[str], prompt: str, max_tokens: Optional[int] = None, **kwargs) -> str:
         """Analyze images with a text prompt using Gemini vision models via LiteLLM."""
         # Determine the correct vision model ID to use
-        # Use the main model_id if it's a known vision model, otherwise default
+        # Use the configured model_id directly, assuming it's vision-capable if used here.
+        # LiteLLM/Gemini API will error if it's not.
         vision_model_id = self.model_id
-        if "flash" not in vision_model_id and "pro" not in vision_model_id: # Simple check, might need refinement
-             logger.warning(f"Model {self.model_id} might not support vision. Using default vision model.")
-             vision_model_id = self.DEFAULT_VISION_MODEL
 
         # Override max_tokens if provided specifically for this call
         current_max_tokens = max_tokens if max_tokens is not None else self.max_tokens

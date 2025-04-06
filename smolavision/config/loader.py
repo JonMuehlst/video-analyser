@@ -50,10 +50,19 @@ def load_config_from_env() -> Dict[str, Any]:
         config["model"] = config.get("model", {})
         config["model"]["model_type"] = "huggingface"
         config["model"]["api_key"] = api_key
-    
-    # Ollama configuration
-    if os.environ.get("OLLAMA_ENABLED") == "true":
+    elif api_key := os.environ.get("GEMINI_API_KEY"):
         config["model"] = config.get("model", {})
+        config["model"]["model_type"] = "gemini"
+        config["model"]["api_key"] = api_key
+
+    # Ollama configuration (keep separate from API key logic)
+    if os.environ.get("OLLAMA_ENABLED") == "true":
+        # Ensure model section exists if only Ollama env vars are set
+        config["model"] = config.get("model", {})
+        # Only set model_type to ollama if no other API key forced a different type
+        if "model_type" not in config["model"]:
+             config["model"]["model_type"] = "ollama"
+        # Store Ollama specific settings
         config["model"]["model_type"] = "ollama"
         config["model"]["ollama"] = config["model"].get("ollama", {})
         config["model"]["ollama"]["enabled"] = True
@@ -103,18 +112,17 @@ def load_config_from_args(args: Namespace) -> Dict[str, Any]:
         config["video"]["end_time"] = args.end_time
     
     # Model configuration
-    if hasattr(args, "model_type"):
-        config["model"] = config.get("model", {})
-        config["model"]["model_type"] = args.model_type
-    if hasattr(args, "api_key"):
-        config["model"] = config.get("model", {})
-        config["model"]["api_key"] = args.api_key
-    if hasattr(args, "vision_model"):
-        config["model"] = config.get("model", {})
-        config["model"]["vision_model"] = args.vision_model
-    if hasattr(args, "summary_model"):
-        config["model"] = config.get("model", {})
-        config["model"]["summary_model"] = args.summary_model
+    model_args = {}
+    if hasattr(args, "model_type") and args.model_type is not None:
+        model_args["model_type"] = args.model_type
+    if hasattr(args, "api_key") and args.api_key is not None:
+        model_args["api_key"] = args.api_key
+    if hasattr(args, "vision_model") and args.vision_model is not None:
+        model_args["vision_model"] = args.vision_model
+    if hasattr(args, "summary_model") and args.summary_model is not None:
+        model_args["summary_model"] = args.summary_model
+    if model_args:
+        config["model"] = {**config.get("model", {}), **model_args}
     
     # Ollama configuration
     if hasattr(args, "ollama_enabled") and args.ollama_enabled:

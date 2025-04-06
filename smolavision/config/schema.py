@@ -24,14 +24,22 @@ class OllamaConfig:
 @dataclass
 class ModelConfig:
     """Model configuration."""
-    model_type: str = "anthropic"  # anthropic, openai, huggingface, ollama, gemini
+    model_type: str = "anthropic"  # Supported: anthropic, openai, huggingface, ollama, gemini
     api_key: Optional[str] = None
-    # Default vision/summary models might need adjustment if default model_type changes
-    vision_model: str = "claude-3-opus-20240229"
-    summary_model: str = "claude-3-5-sonnet-20240620"
+    # Default vision/summary models - these are provider-specific
+    # Anthropic defaults:
+    # vision_model: str = "claude-3-opus-20240229"
+    # summary_model: str = "claude-3-5-sonnet-20240620"
+    # OpenAI defaults:
+    # vision_model: str = "gpt-4-vision-preview"
+    # summary_model: str = "gpt-4-turbo"
+    # Gemini defaults (can often use the same model for both):
+    vision_model: str = "gemini/gemini-1.5-flash-latest" # Default if no specific provider chosen/overridden
+    summary_model: str = "gemini/gemini-1.5-flash-latest" # Default if no specific provider chosen/overridden
     temperature: float = 0.7
     max_tokens: int = 4096
     ollama: OllamaConfig = field(default_factory=OllamaConfig)
+    # Add Gemini specific config if needed in future, for now API key is main thing
     
 @dataclass
 class AnalysisConfig:
