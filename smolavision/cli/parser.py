@@ -59,7 +59,35 @@ def create_parser() -> argparse.ArgumentParser:
     output_group = parser.add_argument_group("Output")
     output_group.add_argument("--output-dir", default="output", help="Output directory")
     output_group.add_argument("--verbose", action="store_true", help="Enable verbose logging")
-    
+
+    # Subparsers for different commands
+    subparsers = parser.add_subparsers(dest="command", help="Sub-commands")
+
+    # Analysis command (default) - arguments are already defined above
+
+    # Check dependencies command
+    check_parser = subparsers.add_parser("check", help="Check dependencies")
+    # Add any specific args for check if needed
+
+    # Setup Ollama command
+    setup_parser = subparsers.add_parser("setup-ollama", help="Setup Ollama models")
+    setup_parser.add_argument("--models", help="Comma-separated list of models to install (e.g., llama3,llava)")
+    setup_parser.add_argument("--ollama-base-url", default="http://localhost:11434", help="Ollama server URL")
+
+    # Run Anthropic command (from run_anthropic.py)
+    anthropic_parser = subparsers.add_parser("run-anthropic", help="Run analysis using Anthropic models")
+    anthropic_parser.add_argument("--video", required=True, help="Path to the video file to analyze")
+    anthropic_parser.add_argument("--api-key", help="Anthropic API key (will use env var ANTHROPIC_API_KEY if not provided)")
+    anthropic_parser.add_argument("--output-dir", help="Directory to save output files", default="./output")
+    anthropic_parser.add_argument("--language", help="Language for analysis and summary", default="Hebrew") # Keep Hebrew as default from original script? Or change to English? Let's keep for now.
+    anthropic_parser.add_argument("--frame-interval", type=int, help="Interval between frames in seconds", default=10)
+    anthropic_parser.add_argument("--scene-threshold", type=float, help="Threshold for scene detection", default=30.0)
+    anthropic_parser.add_argument("--vision-model", help="Vision model to use", default="claude-3-opus-20240229")
+    anthropic_parser.add_argument("--summary-model", help="Summary model to use", default="claude-3-5-sonnet-20240620")
+    anthropic_parser.add_argument("--no-flowchart", action="store_true", help="Disable flowchart generation")
+    anthropic_parser.add_argument("--enable-ocr", action="store_true", default=True, help="Enable OCR (default: True)") # Default to True as in original script
+    anthropic_parser.add_argument("--detect-scenes", action="store_true", default=True, help="Enable scene detection (default: True)") # Default to True as in original script
+
     return parser
 
 def parse_args() -> argparse.Namespace:
