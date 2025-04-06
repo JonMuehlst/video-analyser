@@ -36,7 +36,7 @@ def create_parser() -> argparse.ArgumentParser:
     # Ollama options
     ollama_group = parser.add_argument_group("Ollama Integration")
     ollama_group.add_argument("--ollama-enabled", action="store_true", help="Enable Ollama integration")
-    ollama_group.add_argument("--ollama-base-url", default="http://localhost:11434", help="Ollama server URL")
+    # --ollama-base-url is defined per-command where needed (check, setup-ollama)
     ollama_group.add_argument("--ollama-model", help="Ollama model name")
     ollama_group.add_argument("--ollama-vision-model", help="Ollama vision model name")
     
