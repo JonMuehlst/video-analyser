@@ -58,14 +58,18 @@ def validate_model_config(config: Dict[str, Any]) -> List[str]:
     errors = []
     
     # Check model type
+    valid_model_types = ["anthropic", "openai", "huggingface", "ollama", "gemini"]
     model_type = config.get("model_type")
-    if model_type not in ["anthropic", "openai", "huggingface", "ollama"]:
-        errors.append(f"Invalid model type: {model_type}. Must be one of: anthropic, openai, huggingface, ollama.")
-    
-    # Check API key for cloud models
-    if model_type in ["anthropic", "openai"] and not config.get("api_key"):
-        errors.append(f"API key is required for {model_type} models.")
-    
+    if model_type not in valid_model_types:
+        errors.append(f"Invalid model type: {model_type}. Must be one of: {', '.join(valid_model_types)}.")
+
+    # Check API key for cloud models (excluding ollama and huggingface which might use tokens differently)
+    if model_type in ["anthropic", "openai", "gemini"]:
+        # Check config first, then environment variable
+        api_key_present = config.get("api_key") or os.environ.get(f"{model_type.upper()}_API_KEY")
+        if not api_key_present:
+            errors.append(f"API key is required for {model_type} models (set api_key in config or {model_type.upper()}_API_KEY env var).")
+
     # Check Ollama configuration
     if model_type == "ollama":
         ollama_config = config.get("ollama", {})

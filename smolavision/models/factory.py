@@ -12,6 +12,7 @@ from smolavision.models.anthropic import AnthropicModel
 from smolavision.models.openai import OpenAIModel
 from smolavision.models.ollama import OllamaModel
 from smolavision.models.huggingface import HuggingFaceModel
+from smolavision.models.gemini import GeminiModel # Import the new GeminiModel
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +24,8 @@ class ModelFactory:
         "anthropic": AnthropicModel,
         "openai": OpenAIModel,
         "ollama": OllamaModel,
-        "huggingface": HuggingFaceModel
+        "huggingface": HuggingFaceModel,
+        "gemini": GeminiModel # Add gemini to the registry
     }
 
     @classmethod
@@ -72,8 +74,9 @@ class ModelFactory:
         Raises:
             ConfigurationError: If model creation fails
         """
+        # Default to anthropic if not specified
         model_type = config.get("model_type", "anthropic")
-        
+
         logger.info(f"Creating model of type: {model_type}")
         
         try:
@@ -121,7 +124,20 @@ class ModelFactory:
                     temperature=config.get("temperature", 0.7),
                     max_new_tokens=config.get("max_tokens", 4096)
                 )
-                
+
+            elif model_type == "gemini":
+                # Use GEMINI_API_KEY for LiteLLM
+                api_key = cls._get_api_key(config, "GEMINI_API_KEY")
+                # Pass model_id without 'gemini/' prefix, the class handles it
+                model_id = config.get("model_name", GeminiModel.DEFAULT_MODEL.split('/')[-1])
+                return model_class(
+                    api_key=api_key,
+                    model_id=model_id,
+                    temperature=config.get("temperature", 0.7),
+                    max_tokens=config.get("max_tokens", 4096)
+                    # Pass other config items if needed by GeminiModel.__init__ or LiteLLM
+                )
+
         except ImportError as e:
             logger.error(f"Missing dependencies: {e}")
             raise ConfigurationError(f"Missing dependencies: {e}. Please ensure you've installed all dependencies") from e

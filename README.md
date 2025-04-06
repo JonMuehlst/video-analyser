@@ -11,6 +11,7 @@ A system for analyzing videos using smolagents and vision models.
 - Generate coherent summaries of video content
 - Support for workflow analysis and flowchart generation
 - Support for local models via Ollama
+- Support for Google Gemini models via LiteLLM
 
 ## Installation
 
@@ -27,6 +28,14 @@ A system for analyzing videos using smolagents and vision models.
 
 3. Install Ollama (for local models):
    Visit [ollama.com/download](https://ollama.com/download) and follow the instructions for your platform.
+
+4. **Set API Keys (for cloud models):**
+   Set environment variables for the models you want to use:
+   - `ANTHROPIC_API_KEY=your_anthropic_key`
+   - `OPENAI_API_KEY=your_openai_key`
+   - `GEMINI_API_KEY=your_google_ai_studio_key`
+   - `HUGGINGFACE_API_KEY=your_hf_token` (Optional for some HF models)
+   *(You can also provide keys via the `--api-key` argument or a config file)*
 
 ## Using with Local Models (NVIDIA 3060 12GB)
 

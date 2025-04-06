@@ -103,11 +103,8 @@ SmolaVision is designed to be extensible. Key extension points include:
 
 ## Dependencies
 
-SmolaVision relies on the following key dependencies:
+SmolaVision relies on the following key dependencies (see `pyproject.toml` for full list):
 
-- OpenCV for video processing
-- Tesseract for OCR
-- Anthropic, OpenAI, and Hugging Face libraries for cloud-based models
-- Ollama for local model inference
-- Pydantic for data validation
-- Various Python standard libraries
+- **Core:** `opencv-python`, `numpy`, `Pillow`, `scikit-image`, `requests`, `python-dotenv`, `httpx`, `pydantic`, `tqdm`
+- **OCR:** `pytesseract` (requires Tesseract installation)
+- **Models:** `anthropic`, `openai`, `litellm` (used for Gemini and potentially others), `transformers`, `ollama`

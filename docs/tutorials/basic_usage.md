@@ -61,6 +61,9 @@ smolavision --video path/to/your/video.mp4 --vision-model gpt-4o
 
 # Use a specific summary model
 smolavision --video path/to/your/video.mp4 --summary-model gpt-4-turbo
+
+# Use Google Gemini (requires GEMINI_API_KEY env var)
+smolavision --video path/to/your/video.mp4 --model-type gemini --vision-model gemini-1.5-flash-latest
 ```
 
 ### Analysis Options

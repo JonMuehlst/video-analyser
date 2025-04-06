@@ -27,10 +27,10 @@ def create_parser() -> argparse.ArgumentParser:
     
     # Model options
     model_group = parser.add_argument_group("AI Models")
-    model_group.add_argument("--model-type", choices=["anthropic", "openai", "huggingface", "ollama"], 
+    model_group.add_argument("--model-type", choices=["anthropic", "openai", "huggingface", "ollama", "gemini"],
                         default="anthropic", help="Type of AI model to use")
-    model_group.add_argument("--api-key", help="API key for the selected model")
-    model_group.add_argument("--vision-model", help="Vision model to use")
+    model_group.add_argument("--api-key", help="API key for the selected cloud model (e.g., Anthropic, OpenAI, Gemini)")
+    model_group.add_argument("--vision-model", help="Vision model ID to use (overrides default for the selected type)")
     model_group.add_argument("--summary-model", help="Summary model to use")
     
     # Ollama options

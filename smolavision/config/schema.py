@@ -24,8 +24,9 @@ class OllamaConfig:
 @dataclass
 class ModelConfig:
     """Model configuration."""
-    model_type: str = "anthropic"  # anthropic, openai, huggingface, ollama
+    model_type: str = "anthropic"  # anthropic, openai, huggingface, ollama, gemini
     api_key: Optional[str] = None
+    # Default vision/summary models might need adjustment if default model_type changes
     vision_model: str = "claude-3-opus-20240229"
     summary_model: str = "claude-3-5-sonnet-20240620"
     temperature: float = 0.7
