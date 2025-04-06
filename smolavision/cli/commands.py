@@ -17,17 +17,12 @@ from smolavision.pipeline.run import run_smolavision as run_smolavision_pipeline
 from smolavision.exceptions import SmolaVisionError, ConfigurationError
 from smolavision.cli.utils import print_results, print_error, print_warning, print_success
 from smolavision.utils.dependency_checker import check_all_dependencies
-# We need ollama_setup logic here if we keep the setup-ollama command
-# from smolavision.utils.ollama_setup import setup_ollama_models # This doesn't exist yet, setup_ollama.py is in root
+# Import the actual setup function
+from smolavision.utils.ollama_setup import setup_ollama_models
 
 logger = logging.getLogger(__name__)
 
-# Placeholder for setup_ollama_models logic if needed later
-def setup_ollama_models(models: List[str], base_url: str) -> bool:
-    logger.warning("Setup Ollama command needs implementation within the package.")
-    # TODO: Integrate logic from examples/setup_ollama.py or similar
-    print(f"Placeholder: Would attempt to install models: {models} from {base_url}")
-    return True
+# Removed placeholder function setup_ollama_models
 
 def run_analysis(args) -> int:
     """
@@ -170,17 +165,17 @@ def setup_ollama_command(args) -> int:
         models_to_install = args.models.split(",") if args.models else ["llama3", "llava"]
         print(f"Attempting to set up Ollama models: {models_to_install} using base URL: {args.ollama_base_url}")
 
-        # Call the placeholder function (replace with actual implementation later)
+        # Call the actual setup function from smolavision.utils.ollama_setup
         success = setup_ollama_models(
             models=models_to_install,
             base_url=args.ollama_base_url
         )
 
         if not success:
-            print_error("Failed to set up Ollama models.")
+            print_error("Failed to set up one or more Ollama models. Check logs for details.")
             return 1
 
-        print_success("Ollama models setup command executed (actual installation depends on implementation).")
+        print_success("Ollama models setup process completed.")
         return 0
         
     except Exception as e:
