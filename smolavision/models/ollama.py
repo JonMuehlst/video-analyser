@@ -3,6 +3,7 @@ import logging
 import json
 import httpx
 import time
+import asyncio # Added for asyncio.sleep
 from typing import List, Dict, Any, Optional
 
 from smolavision.models.base import ModelInterface
@@ -105,6 +106,41 @@ class OllamaModel(ModelInterface):
             
             # Wait before retrying
             time.sleep(self.retry_delay)
+
+    async def _make_request_with_retry_async(self, endpoint: str, data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Make an asynchronous request to Ollama API with retry logic.
+
+        Args:
+            endpoint: API endpoint
+            data: Request data
+
+        Returns:
+            Response JSON
+
+        Raises:
+            ModelError: If request fails after all retries
+        """
+        for attempt in range(self.max_retries):
+            try:
+                response = await self.async_client.post(endpoint, json=data)
+                response.raise_for_status()
+                return response.json()
+            except httpx.TimeoutException as e:
+                logger.warning(f"Async request timed out (attempt {attempt+1}/{self.max_retries}): {e}")
+                if attempt == self.max_retries - 1:
+                    raise ModelError(f"Async request timed out after {self.max_retries} attempts: {e}") from e
+            except httpx.HTTPStatusError as e:
+                logger.warning(f"Async HTTP error {e.response.status_code} (attempt {attempt+1}/{self.max_retries}): {e}")
+                if attempt == self.max_retries - 1:
+                    raise ModelError(f"Async HTTP error {e.response.status_code} after {self.max_retries} attempts: {e}") from e
+            except Exception as e:
+                logger.warning(f"Async unexpected error (attempt {attempt+1}/{self.max_retries}): {e}")
+                if attempt == self.max_retries - 1:
+                    raise ModelError(f"Async unexpected error after {self.max_retries} attempts: {e}") from e
+
+            # Wait before retrying (async sleep)
+            await asyncio.sleep(self.retry_delay)
 
     def generate_text(self, prompt: str, **kwargs) -> str:
         """
@@ -248,10 +284,37 @@ class OllamaModel(ModelInterface):
         Raises:
             ModelError: If text generation fails
         """
-        # For now, we'll use the synchronous version
-        # TODO: Implement true async request using self.async_client
-        logger.warning("Using synchronous call within async method generate_text_async")
-        return self.generate_text(prompt, **kwargs)
+        try:
+            logger.debug(f"Async generating text with model {self.model_name}, prompt length: {len(prompt)}")
+
+            data = {
+                "prompt": prompt,
+                "model": self.model_name,
+                "stream": False,
+                "temperature": kwargs.get("temperature", self.temperature),
+                "max_tokens": kwargs.get("max_tokens", self.max_tokens),
+            }
+
+            # Add any additional parameters
+            for key, value in kwargs.items():
+                if key not in data:
+                    data[key] = value
+
+            # Make async request with retry logic
+            response_json = await self._make_request_with_retry_async("/api/generate", data)
+
+            # Extract response text
+            response_text = response_json.get("response", "")
+            logger.debug(f"Async text generation completed, response length: {len(response_text)}")
+
+            return response_text
+
+        except ModelError:
+            # Re-raise ModelError exceptions
+            raise
+        except Exception as e:
+            logger.exception("Unexpected error during async text generation")
+            raise ModelError(f"Ollama async text generation failed: {e}") from e
 
     async def analyze_images_async(self, images: List[str], prompt: str, max_tokens: int = 4096, **kwargs) -> str:
         """
@@ -269,6 +332,67 @@ class OllamaModel(ModelInterface):
         Raises:
             ModelError: If image analysis fails
         """
-        # TODO: Implement true async request using self.async_client
-        logger.warning("Using synchronous call within async method analyze_images_async")
-        return self.analyze_images(images, prompt, max_tokens, **kwargs)
+        try:
+            logger.debug(f"Async analyzing {len(images)} images with model {self.vision_model}")
+
+            # Create messages with image data
+            messages = []
+
+            # Limit the number of images to prevent overloading the model
+            max_images = kwargs.get("max_images", 10)
+            if len(images) > max_images:
+                logger.warning(f"Too many images ({len(images)}), limiting to {max_images}")
+                images = images[:max_images]
+
+            # Add image messages
+            for image_data in images:
+                messages.append({
+                    "type": "image",
+                    "data": image_data
+                })
+
+            # Add prompt message
+            messages.append({
+                "type": "text",
+                "content": prompt
+            })
+
+            data = {
+                "model": self.vision_model,
+                "stream": False,
+                "format": "json",
+                "messages": messages,
+                "max_tokens": kwargs.get("max_tokens", max_tokens),
+                "temperature": kwargs.get("temperature", self.temperature),
+            }
+
+            # Add any additional parameters
+            for key, value in kwargs.items():
+                if key not in data and key not in ["max_images"]:
+                    data[key] = value
+
+            # Make async request with retry logic
+            response_json = await self._make_request_with_retry_async("/api/chat", data)
+
+            # Extract response content from choices
+            choices = response_json.get("choices", [])
+            if not choices:
+                logger.warning("No choices in async response")
+                return ""
+
+            # Concatenate all content from choices
+            response_text = "".join([
+                message.get("content", "")
+                for message in choices
+                if message.get("content")
+            ])
+
+            logger.debug(f"Async image analysis completed, response length: {len(response_text)}")
+            return response_text
+
+        except ModelError:
+            # Re-raise ModelError exceptions
+            raise
+        except Exception as e:
+            logger.exception("Unexpected error during async image analysis")
+            raise ModelError(f"Ollama async image analysis failed: {e}") from e
