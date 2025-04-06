@@ -9,34 +9,13 @@ import argparse
 import dotenv
 from pathlib import Path
 from smolavision.config import create_default_config
+# Import the utility function for running commands
+from smolavision.utils.ollama_setup import _run_command
 
 # Load environment variables from .env file
 dotenv.load_dotenv(Path(__file__).parent / '.env')
 
-def run_command(command):
-    """Run a shell command and print output"""
-    print(f"Running: {command}")
-    try:
-        # Use subprocess.run with explicit encoding settings
-        result = subprocess.run(
-            command,
-            shell=True,
-            capture_output=True,
-            encoding='utf-8',  # Use UTF-8 encoding
-            errors='ignore',   # Ignore encoding errors
-            check=False        # Don't raise exception on non-zero exit
-        )
-        
-        if result.stdout:
-            print(result.stdout)
-            
-        if result.stderr:
-            print(f"Error: {result.stderr}")
-            
-        return result.returncode == 0
-    except Exception as e:
-        print(f"Command execution error: {str(e)}")
-        return False
+# Removed local run_command function
 
 def main():
     """Pull Ollama models suitable for a 3060 GPU with 12GB RAM"""
@@ -69,35 +48,41 @@ def main():
             "fast": "gemma:2b",        # Gemma 2B
             "tiny": "tinyllama:1.1b"   # TinyLlama 1.1B
         }
-    
-    # Check if Ollama is installed
-    if not run_command("ollama --version"):
+
+    # Check if Ollama is installed using the utility function
+    # Note: _run_command expects a list of arguments, not a single string with shell=True
+    if not _run_command(["ollama", "--version"]):
         print("Ollama is not installed or not in PATH. Please install Ollama first.")
         print("Visit https://ollama.com/download for installation instructions.")
         return
-    
-    # Pull models
+
+    # Pull models using the utility function
+    models_to_pull = []
     if args.all or args.text:
-        print(f"\nPulling text model: {small_models['text']}")
-        run_command(f"ollama pull {small_models['text']}")
-    
+        models_to_pull.append(small_models['text'])
     if args.all or args.vision:
-        print(f"\nPulling vision model: {small_models['vision']}")
-        run_command(f"ollama pull {small_models['vision']}")
-    
+        models_to_pull.append(small_models['vision'])
     if args.all or args.chat:
-        print(f"\nPulling chat model: {small_models['chat']}")
-        run_command(f"ollama pull {small_models['chat']}")
-    
+        models_to_pull.append(small_models['chat'])
     if args.all or args.fast:
-        print(f"\nPulling fast model: {small_models['fast']}")
-        run_command(f"ollama pull {small_models['fast']}")
-    
+        models_to_pull.append(small_models['fast'])
     if args.all or args.tiny:
-        print(f"\nPulling tiny model: {small_models['tiny']}")
-        run_command(f"ollama pull {small_models['tiny']}")
-    
-    print("\nSetup complete! You can now run SmolaVision with local models.")
+        models_to_pull.append(small_models['tiny'])
+
+    # Remove duplicates if --all is used with specific flags
+    models_to_pull = list(set(models_to_pull))
+
+    all_successful = True
+    for model in models_to_pull:
+        print(f"\nPulling model: {model}")
+        if not _run_command(["ollama", "pull", model]):
+            all_successful = False
+            print(f"Failed to pull model: {model}") # Logged by _run_command already
+
+    if all_successful:
+        print("\nSetup complete! You can now run SmolaVision with local models.")
+    else:
+        print("\nSetup incomplete. Some models failed to pull. Check logs above.")
     print("Use: python run_local.py [video_path]")
 
 if __name__ == "__main__":
